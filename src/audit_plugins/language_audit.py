@@ -115,6 +115,43 @@ class LanguageAudit(DefaultAudit):
 
     return output
 
+  @staticmethod
+  def is_english_lang(lang: str) -> bool:
+    """Return True if a lang attribute value denotes English.
+
+    An empty or missing value is treated as English, because the page's
+    document language has already been confirmed as English before this runs.
+
+    Args:
+        lang (str): a BCP 47 language tag, e.g. 'en', 'en-NZ', 'mi'
+
+    Returns:
+        bool: True if the value is English or empty, else False
+    """
+    lang = (lang or '').strip().lower()
+    return lang in ('', 'en') or lang.startswith('en-')
+
+  @staticmethod
+  def filter_out_non_english_language(soup: BeautifulSoup) -> None:
+    """Remove elements whose declared language is not English.
+
+    Text inside an element with a non-English ``lang`` attribute should not be
+    tested for English readability (WCAG 3.1.2, Language of Parts). Removing the
+    element removes its descendants too, so text that inherits a non-English
+    language from an ancestor is excluded as well. For example, Maori text in a
+    ``<div lang="mi">`` is dropped even when the page is ``<html lang="en-NZ">``.
+
+    Args:
+        soup (BeautifulSoup): the soup to filter, modified in place
+    """
+    for element in soup.find_all(attrs={'lang': True}):
+      # An outer non-English element may already have been removed along with
+      # this one; skip anything that is no longer part of the tree.
+      if element.decomposed:
+        continue
+      if not LanguageAudit.is_english_lang(str(element.get('lang') or '')):
+        element.decompose()
+
   def filter_out_non_text(self, soup: BeautifulSoup) -> None:
     """Filter out non-text elements from the soup.
 
@@ -161,10 +198,26 @@ class LanguageAudit(DefaultAudit):
     with open(path_2, 'r', encoding='utf-8-sig') as file:
       readability_js += file.read()
 
+    # Remove non-English content before Readability runs. Readability often
+    # flattens wrapper elements, which drops a `lang` attribute set on an
+    # ancestor. Filtering the cloned document first keeps that language
+    # inheritance intact, so Maori or other non-English text is excluded from
+    # the English readability test (issue #212). The rule matches
+    # `is_english_lang`: keep 'en', 'en-*', or no lang; drop the rest.
+    filter_js = """
+        documentCopy.querySelectorAll('[lang]').forEach(function (el) {
+          var lang = (el.getAttribute('lang') || '').trim().toLowerCase();
+          if (lang && lang !== 'en' && lang.indexOf('en-') !== 0) {
+            el.remove();
+          }
+        });
+        """
+
     # JavaScript to execute Readability
     final_js = f"""
         {readability_js}
         const documentCopy = document.cloneNode(true);
+        {filter_js}
         if (isProbablyReaderable(documentCopy) === false) return false;
         const reader = new Readability(documentCopy);
         const article = reader.parse();
@@ -191,6 +244,10 @@ class LanguageAudit(DefaultAudit):
 
     # Remove all SVGs
     self.filter_out_non_text(soup)
+
+    # Remove any non-English text that survived into the extracted content, so
+    # only English text is scored for readability (issue #212).
+    self.filter_out_non_english_language(soup)
 
     # Accepted element types
     accepted_elements = ['p', 'li', 'h1', 'h2', 'h3', 'h4', 'h5', 'h6']
