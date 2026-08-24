@@ -83,6 +83,26 @@ class LanguageAudit(DefaultAudit):
 
     return output_rows
 
+  @staticmethod
+  def is_english_text(element: Any) -> bool:
+    """Return True if the element's text is in English.
+
+    A lang attribute on the element or any of its ancestors overrides the
+    document default. Text marked with a non-English lang is excluded from
+    the readability analysis.
+
+    Args:
+        element (Any): the BeautifulSoup element to check
+
+    Returns:
+        bool: True if the text is in English
+    """
+    for node in [element, *element.parents]:
+      lang = node.get('lang')
+      if lang:
+        return str(lang).lower().startswith('en')
+    return True
+
   def sentence_ify(self, input_text: str) -> str:
     """Convert a string into a normalised sentence.
 
@@ -197,6 +217,8 @@ class LanguageAudit(DefaultAudit):
     flat_output = ''
 
     for element in soup.find_all(accepted_elements):
+      if not self.is_english_text(element):
+        continue
       flat_output += self.sentence_ify(element.text) + ' '
 
     # Add the title
