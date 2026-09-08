@@ -31,7 +31,7 @@
 - 2026-08-24 issue #213 max_links_per_domain:0 — pr-opened (fork PR #15) — promoted upstream #355, closed; area in flux, avoid
 - 2026-08-24 issue #212 dup — closed-superseded (fork PR #17) — dedupe must match repo+issue
 - 2026-08-26 test-coverage — pr-closed-ci-blocked (fork PR #11) — mypy/pylint/ruff red
-- 2026-09-09 trivial-fix pass — in-progress — typos/dead-links/stale-commands hunt
+- 2026-09-09 trivial-fix pass — pr-opened (fork PR #24) — 7 typo/stale-path fixes across 4 docs (README, audit-config, audit-results, reflow-audit); fork CI 9/9 green
 
 ## Mined gaps (discovered, not yet attempted)
 - none yet
