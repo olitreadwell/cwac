@@ -69,7 +69,7 @@ class ReflowAudit(DefaultAudit):
       print(msg)
       return False
 
-    # Determine if there is a horisontal overflow
+    # Determine if there is a horizontal overflow
     try:
       self.browser.driver.execute_script('window.scrollTo(100, 0);')
       overflow_amount = self.browser.driver.execute_script('return window.scrollX;')
