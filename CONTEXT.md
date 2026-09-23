@@ -32,7 +32,7 @@
 - 2026-08-24 issue #212 dup — closed-superseded (fork PR #17) — dedupe must match repo+issue
 - 2026-08-26 test-coverage — pr-closed-ci-blocked (fork PR #11) — mypy/pylint/ruff red
 - 2026-09-09 trivial-fix pass — pr-opened (fork PR #24) — 7 typo/stale-path fixes across 4 docs (README, audit-config, audit-results, reflow-audit); fork CI 9/9 green
-- 2026-09-24 trivial-fix pass — pr-opened (fork PR #25) — 5 genuine fixes across 5 files: broken LICENSE link in CONTRIBUTING.md, typos pacakge.json/CWAC-307, mertrics/output.py, indiactor/focus-indicator, horisontal/reflow-audit; fork CI pending
+- 2026-09-24 trivial-fix pass — pr-opened (fork PR #25) — 5 genuine fixes across 5 files: broken LICENSE link in CONTRIBUTING.md, typos pacakge.json/CWAC-307, mertrics/output.py, indiactor/focus-indicator, horisontal/reflow-audit; fork CI 9/9 green, mergeable_state=clean
 
 ## Mined gaps (discovered, not yet attempted)
 - none yet
