@@ -34,5 +34,7 @@
 - 2026-09-09 trivial-fix pass — pr-opened (fork PR #24) — 7 typo/stale-path fixes across 4 docs (README, audit-config, audit-results, reflow-audit); fork CI 9/9 green
 - 2026-09-24 trivial-fix pass — pr-opened (fork PR #25) — 5 genuine fixes across 5 files: broken LICENSE link in CONTRIBUTING.md, typos pacakge.json/CWAC-307, mertrics/output.py, indiactor/focus-indicator, horisontal/reflow-audit; fork CI 9/9 green, mergeable_state=clean
 
+- 2026-09-25 issue #164 filter log base/filtered_url labels — pr-opened (fork PR #26) — 3 log lines prefixed base_url:/filtered_url: + 5 unit tests; fork CI 9/9 green, mergeable_state=clean; no AI in body/commits
+
 ## Mined gaps (discovered, not yet attempted)
 - none yet
