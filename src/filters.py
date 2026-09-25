@@ -166,7 +166,11 @@ def url_filter_not_same_domain(url_a: str, url_b: str) -> bool:
   domain_b = domain_b.removeprefix('www.')
 
   if domain_a != domain_b:
-    logger.info('url out due to domain mismatch %s %s', url_a, url_b)
+    logger.info(
+      'url out due to domain mismatch base_url: %s filtered_url: %s',
+      url_b,
+      url_a,
+    )
   return domain_a == domain_b
 
 

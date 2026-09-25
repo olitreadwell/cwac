@@ -188,7 +188,7 @@ class Crawler:
     # scope of the current_base_url
     if not current_url.startswith(current_base_url):
       logger.info(
-        'URL filtered out due to not starting with base_url %s %s',
+        'URL filtered out due to not starting with base_url: %s filtered_url: %s',
         current_base_url,
         current_url,
       )
@@ -206,8 +206,7 @@ class Crawler:
         # this means that the current_url is within the scope of
         # another base_url that is more specific than current_base_url
         logger.info(
-          'URL filtered out due to being within \
-                            the scope of another base_url %s %s',
+          'URL filtered out due to being within the scope of another base_url: %s filtered_url: %s',
           base_url,
           current_url,
         )
