@@ -13,6 +13,7 @@ import src.filters
 import src.output
 from config import Config, SiteData
 from src.analytics import Analytics
+from src.request_headers import extra_request_headers
 
 logger = logging.getLogger('cwac')
 
@@ -163,7 +164,11 @@ class CrawlablePageValidator:
     # Fetch the robots.txt file
     try:
       logger.info('Fetching robots.txt %s', robots_txt_url)
-      response = requests.get(robots_txt_url, headers={'User-Agent': self.config.user_agent}, timeout=10)
+      response = requests.get(
+        robots_txt_url,
+        headers={'User-Agent': self.config.user_agent, **extra_request_headers()},
+        timeout=10,
+      )
       response.raise_for_status()
 
       # Check Content-Type is text/plain (in a safe way)

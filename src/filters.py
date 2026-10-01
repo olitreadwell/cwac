@@ -8,6 +8,7 @@ from typing import Any, TypedDict
 import requests
 
 from config import Config
+from src.request_headers import extra_request_headers
 
 # url_filter_* functions are declared here
 # url_filter_* functions return True when a URL is acceptable
@@ -236,9 +237,9 @@ def process_url_headers(config: Config, url: str, supports_head_requests: bool =
   # Try to get the headers 2 times
   for i in range(3):
     try:
-      # Set the user agent string
-      ua_string = {'User-Agent': config.user_agent}
-      headers = requests.request(method, url, headers=ua_string, timeout=timeout, allow_redirects=True)
+      # Set the user agent string, followed by any extra request headers
+      request_headers = {'User-Agent': config.user_agent, **extra_request_headers()}
+      headers = requests.request(method, url, headers=request_headers, timeout=timeout, allow_redirects=True)
 
       # this response does not really make sense, but if it does happen we might as well skip remaining retries
       if headers.status_code == 405 and method != 'get':
