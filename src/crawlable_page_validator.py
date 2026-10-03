@@ -345,7 +345,9 @@ class CrawlablePageValidator:
     parsed_url = parsed_url._replace(path=urllib.parse.quote(parsed_url.path, safe='/'))
 
     # Prevent path traversal using posixpath.normpath
-    parsed_url = parsed_url._replace(path=posixpath.normpath(parsed_url.path))
+    # (normpath('') returns '.', which would add a spurious dot segment to a URL that has no path)
+    if parsed_url.path:
+      parsed_url = parsed_url._replace(path=posixpath.normpath(parsed_url.path))
 
     # Add trailing slash if it was there
     if was_trailing_slash and not parsed_url.path.endswith('/'):
