@@ -1,5 +1,5 @@
 # GOVTNZ/cwac context
-> refreshed 2026-10-02 | upstream default: main @ 0c9fb18
+> refreshed 2026-10-04 | upstream default: main @ 73f2bef
 
 ## Identity & policies
 - upstream: GOVTNZ/cwac, default branch main, primary language Python (JS for axe-core), English-first (yes)
@@ -11,18 +11,20 @@
 
 ## Conventions (verified from merged PRs)
 - branch naming: mixed — `CWAC-<issue>/<desc>` (e.g. CWAC-327/make-optional), `fix/...`, `docs/...`, `chore/...`, `refactor/...`, `feat/...`, `perf/...`; Conventional Commits style
-- commit style: Conventional Commits (`fix:`, `docs:`, `chore:`, `refactor:`, `feat:`, `perf:`)
+- commit style: Conventional Commits (`fix:`, `docs:`, `chore:`, `refactor:`, `feat:`, `perf:`); short imperative subject, body as plain prose (e.g. #395, #392)
 - test command: pytest; lint: ruff, mypy, flake8, pylint, bandit; CI gates merge
 - how outside PRs get merged: responsive — G-Rath + eoinkelly merge external PRs within days; 67 external merges in 60d
 
 ## Maintainer picture
 - active maintainers: G-Rath (very active, many merged PRs), eoinkelly (Web Standards team, GDDA)
-- areas actively worked: browser/selenium internals (Firefox support removed in #380, browser options cleaned up in #381), sitemap de-duplication (#389-#392), ruff linting, CSV writer, axe-core animations — avoid overlapping in-flight work
+- areas actively worked (2026-10-04): browser lifecycle (#384, #397), URL sanitising / double-encoding (#396), random queue picking (#386), results-merge script (#383), logging format (#358). Recently landed: sitemap de-duplication (#389-#392), ruff linting, CSV writer. Avoid overlapping in-flight work
 
 ## Issue-area health
 - max_links_per_domain logic in flux (issue #213, team redesigning; AVOID further picks there)
 - language audit (issue #212) already staged in fork PR #3
-- 13 open issues + 12 open PRs (2026-10-02); fork PR #25 still open (trivial-typos-and-broken-link); scanner rule/reporting bugs are the tractable area
+- merging scan results / page_id actively being worked by G-Rath (issue #160 + PR #383) — AVOID
+- scope/boundary matching in flux (issue #372 + external PR #373; scope logic moved crawler.py -> crawlable_page_validator.py in #374) — AVOID
+- 13 open issues + 11 open PRs (2026-10-04); scanner rule/reporting bugs are the tractable area
 
 ## Gap ledger (dedupe — READ FIRST, never re-pick)
 - 2026-08-05 test-coverage — pr-opened (fork PR #1, folded into #2) — filetype coverage
@@ -38,5 +40,7 @@
 - 2026-10-01 issue #337 credentialed scan / scan with cookie — pr-opened (fork PR #28) — G-Rath suggested a `CHROME_EXTRA_ARGS`-style env var for arbitrary headers; added `EXTRA_HEADERS` (browser via CDP `Network.setExtraHTTPHeaders`, header checks + robots.txt via requests, forwarded by `bin/run`, documented); 8 new tests, lint clean, 186/4 lines; fork CI 9/9 green, mergeable_state=clean
 - 2026-10-02 trivial-fix pass — pr-opened (fork PR #29) — 6 genuine fixes across 5 files: `Unforuntately` typo + stale 1280px/zoom `ReflowAudit.run()` docstring (reflow_audit.py), focus-indicator settings marked required + body fallback (doc/audits/focus-indicator-audit.md), `fulfilment` NZ spelling (README.md), Chrome for Testing version in local-dev-setup.md, axe-core rule example 4.12->4.13 (doc/audits/axe-core-audit.md); fork CI 9/9 green, mergeable_state=clean
 
+- 2026-10-04 self-found gap `_url_sanitise` empty path — pr-opened (fork PR #30) — `posixpath.normpath('')` returned `.`, so a URL with no path (`https://example.com`) sanitised to `https://example.com/.` and was recorded/audited under that string; guard only runs `normpath` when there is a path, +2 regression tests; dedupe: the only related PR is open #396 (touches `_url_sanitise` for double-encoding/encoded dot segments) and it does NOT cover the empty-path case (verified by running its head); fork CI 9/9 green, mergeable_state=clean
+
 ## Mined gaps (discovered, not yet attempted)
-- none yet
+- 2026-10-04 clean-code `CrawlablePageValidator._url_sanitise('https://example.com')` -> `https://example.com/.`; repro `validator.validate(SITE_DATA, 'https://example.com', ..., 'https://example.com')`; expected `https://example.com`; proposed test parametrises path-less root URLs; dedupe: no matching issue, open PR #396 does not fix it — status: attempted (fork PR #30)
