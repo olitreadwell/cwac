@@ -48,11 +48,12 @@ The focus indicator audit requires the following scan configuration:
 - `headless` must be set to `true`. This is required because screenshot-based
   comparison does not work reliably in a visible browser window.
 
-The following optional settings are available under
-`audit_plugins.focus_indicator_audit` in the config:
+The following settings are required under `audit_plugins.focus_indicator_audit`
+in the config:
 
 - `root_element_css_selector` - CSS selector for the element that Tab key
-  presses are sent to. Defaults to `body`.
+  presses are sent to. If no matching element is found, the audit falls back to
+  `body`.
 - `pre_tab_key_presses` - Number of Tab presses to perform before the audit
   begins, to skip past any skip-navigation links or banners.
 - `max_tab_key_presses` - Maximum number of Tab presses to perform during the
