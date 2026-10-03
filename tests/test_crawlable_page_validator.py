@@ -64,6 +64,22 @@ def test_validate_returns_sanitised_url_without_header_check(validator: Crawlabl
   )
 
 
+@pytest.mark.parametrize(
+  ('url', 'expected'),
+  [
+    ('https://example.com', 'https://example.com'),
+    ('https://example.com/', 'https://example.com/'),
+  ],
+)
+def test_validate_preserves_url_without_a_path(
+  validator: CrawlablePageValidator,
+  url: str,
+  expected: str,
+) -> None:
+  """Does not turn an empty path into a spurious '.' segment."""
+  assert validator.validate(SITE_DATA, BASE_URL, PARENT_URL, url) == expected
+
+
 @pytest.mark.parametrize('perform_header_check', [False, True])
 def test_validate_rejects_invalid_url(
   validator: CrawlablePageValidator,
