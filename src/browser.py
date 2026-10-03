@@ -16,6 +16,7 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeWebDriver
 
 from config import Config
+from src.request_headers import extra_request_headers
 
 WebDriverType = ChromeWebDriver
 
@@ -255,6 +256,13 @@ class Browser:
     chrome_options.binary_location = self.config.chrome_binary_location
 
     driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
+
+    # Add any extra request headers set via the environment
+    request_headers = extra_request_headers()
+    if request_headers:
+      driver.execute_cdp_cmd('Network.enable', {})
+      driver.execute_cdp_cmd('Network.setExtraHTTPHeaders', {'headers': request_headers})
+      logger.info('Sending extra request headers: %s', ', '.join(sorted(request_headers)))
 
     driver.set_script_timeout(self.config.script_timeout)
     driver.set_page_load_timeout(self.config.page_load_timeout)
