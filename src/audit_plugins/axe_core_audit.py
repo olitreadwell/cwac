@@ -92,8 +92,6 @@ class AxeCoreAudit(DefaultAudit):
         if not self.best_practice and 'best-practice' in violation['tags']:
           continue
 
-        # Truncate html to 100 characters so
-        # the CSV is not too chonky
         best_practice_str = self.best_practice_string('best-practice' in violation['tags'])
         results_dict = {
           'audit_type': AxeCoreAudit.audit_type,
@@ -105,6 +103,8 @@ class AxeCoreAudit(DefaultAudit):
           'helpUrl': violation['helpUrl'],
           'id': violation['id'],
           'impact': node['impact'],
+          # Truncate html to 100 characters so
+          # the CSV is not too chonky
           'html': node['html'][:100],
           'tags': violation['tags'],
           'best-practice': best_practice_str,
