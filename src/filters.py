@@ -74,7 +74,7 @@ def url_filter_http(_config: Config, url: urllib.parse.ParseResult) -> bool:
       url (urllib.parse.ParseResult): A URL to filter
 
   Returns:
-      bool: True of URL is valid, else False
+      bool: True if URL is valid, else False
   """
   return url.scheme in ('http', 'https')
 
@@ -174,7 +174,7 @@ def url_filter_by_header_content_type(url: str, headers: dict[Any, Any]) -> bool
   """Filter out when invalid Content-Type is set.
 
   Args:
-      url (str):: url that headers were retrieved from
+      url (str): url that headers were retrieved from
       headers (dict[Any, Any]): headers from a server
 
   Returns:
@@ -233,7 +233,7 @@ def process_url_headers(config: Config, url: str, supports_head_requests: bool =
       url,
     )
 
-  # Try to get the headers 2 times
+  # Try to get the headers 3 times
   for i in range(3):
     try:
       # Set the user agent string
@@ -274,7 +274,7 @@ def url_filter_same_protocol(url_a: str, url_b: str) -> bool:
       url_b (str): A url to compare with url_a
 
   Returns:
-      bool: True if url_b is within domain of url_a, else False
+      bool: True if url_a and url_b have the same protocol, else False
   """
   try:
     parsed_a = urllib.parse.urlparse(url_a)
