@@ -272,7 +272,7 @@ def url_filter_same_protocol(url_a: str, url_b: str) -> bool:
       url_b (str): A url to compare with url_a
 
   Returns:
-      bool: True if url_b is within domain of url_a, else False
+      bool: True if url_a and url_b have the same protocol, else False
   """
   try:
     parsed_a = urllib.parse.urlparse(url_a)
