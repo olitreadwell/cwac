@@ -61,7 +61,7 @@ class Crawler:
 
     This is the entry point and main loop of the crawler.
     """
-    # Count how many URls have been iterated through
+    # Count how many URLs have been iterated through
     url_iteration = 0
     while not self.url_queue.empty():
       url_iteration += 1
