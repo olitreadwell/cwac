@@ -40,7 +40,7 @@ class FocusIndicatorAudit(DefaultAudit):
     """Wait for animations to finish on the page.
 
     Returns:
-        bool: if the page is still animating after 3 seconds
+        bool: if the page is still animating after 15 seconds
     """
     logger.info('Waiting for page to stop animating...')
     initial_time = time.time()
@@ -180,7 +180,7 @@ class FocusIndicatorAudit(DefaultAudit):
           ),
           'html': '',
           'num_issues': 1,
-          'helpUrl': ('https://www.w3.org/WAI/WCAG21/Understanding/pause-stop-hide.html'),
+          'helpUrl': ('https://www.w3.org/WAI/WCAG22/Understanding/pause-stop-hide.html'),
         }
       ]
 

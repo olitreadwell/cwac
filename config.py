@@ -190,7 +190,7 @@ class Config:
     filter_to_urls.
 
     Args:
-        subject (AuditSubject): an audit subject parsed from a CSV
+        row (SiteData): an audit subject parsed from a CSV
 
     Returns:
         bool: True if the subject should be skipped, False otherwise
@@ -366,7 +366,7 @@ class Config:
     """Read the config.json file and return it.
 
     Returns:
-        dict (Any): a dict of the contents of test_config.json
+        dict (Any): a dict of the contents of config_default.json
     """
     # First arg passed to CWAC is the config filename
     if len(sys.argv) > 1:

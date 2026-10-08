@@ -13,8 +13,8 @@ It makes the following changes from the standard axe-core results:
 1. The `num_issues` column now represents the total number of failures in the
    result-set that have the same value for `base_url`, `id`, `viewport_size`,
    and `html`.
-1. A new `num_pages` column which represents how many other URLs had same type
-   of axe-core failure as the current row.
+1. A new `num_pages` column which represents how many other URLs had the same
+   type of axe-core failure as the current row.
 
 > [!WARNING]
 >
@@ -30,7 +30,7 @@ on.
 
 `num_issues` is our best guess at which issues seem likely to be from a
 template. We cannot know this perfectly because CWAC does not know the
-underlying structure of your site
+underlying structure of your site.
 
 For the row you are looking at, `num_issues` is the total number of failures in
 the result-set that have the same value for `base_url`, `id`, `viewport_size`,

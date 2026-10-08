@@ -44,12 +44,9 @@ class ReflowAudit(DefaultAudit):
   def run(self) -> list[dict[str, Any]] | bool:
     """Run the test.
 
-    WCAG 1.4.10 Reflow is partially tested by zooming
-    to 400% and checking if the page overflows. This requires
-    a viewport_size to be specified in config.json that has a
-    width of exactly 1280px. If no such viewport_size is
-    specified, the test will instead default to a simple
-    check for overflow of the page.
+    WCAG 1.4.10 Reflow is partially tested by resizing
+    the viewport to a width of exactly 320px and checking
+    if the page overflows.
 
     Returns:
         bool: if the audit fails
