@@ -29,3 +29,17 @@ bin/run my_custom_config.json
 > [!WARNING]
 >
 > JSON configuration files must always be located in the `./config/` directory.
+
+## Sending extra request headers
+
+Some sites need extra headers on every request, such as a token to reach pages
+behind a login. Set `EXTRA_HEADERS` to newline-separated `Name: value` pairs:
+
+```shell
+EXTRA_HEADERS=$'Authorization: Bearer <token>\nAccept-Language: en-NZ' bin/run
+```
+
+The headers are sent with every request CWAC makes, including the browser's
+request for each page, so they also go to third-party hosts those pages load
+assets from. When running Docker directly, pass the value in yourself with
+`--env EXTRA_HEADERS=...` or `--env-file`.
