@@ -1,5 +1,5 @@
 # Place URLs in CSV files within /base_urls/visit/
-# and CWAC will visit those specified URls.
+# and CWAC will visit those specified URLs.
 
 # You can place multiple CSV files into the /base_urls/visit/ folder
 # and they will all be loaded.

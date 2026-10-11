@@ -10,7 +10,7 @@ from config import Config, SiteData
 from src.browser import Browser
 
 # Audit classes for use with AuditManager
-# Audit classes are registered with register_test
+# Audit classes are registered with register_audit
 # Audit classes MUST implement:
 # def __init__(self, browser: Browser, **kwargs) -> None
 #   - accepts a browser, and kwargs

@@ -71,16 +71,16 @@ for Testing and the Chrome driver based on your OS and architecture.
 If the paths cannot be determined automatically, you can pass them manually by:
 
 1. Look inside the `chrome/` directory. Note the folder name for the version of
-   Chrome for Testing that was downloaded i.e. `mac_arm-114.0.5735.90`
+   Chrome for Testing that was downloaded i.e. `mac_arm-151.0.7922.71`
 2. Open `cwac/config/`. For every config file in this directory e.g.
    `config_default.json`, modify the value of `chrome_binary_location` so the
    correct binary path is specified. For example:
    - For ARM based macOS the value of `chrome_binary_location` could be:
-     `./chrome/mac_arm-114.0.5735.90/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
+     `./chrome/mac_arm-151.0.7922.71/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing`
      **NB: This path must be the FULL path to the binary within the `.app`
      directory**.
    - For Linux x64, the `chrome_binary_location` could be:
-     `./chrome/linux-114.0.5735.90/chrome-linux64/chrome`
+     `./chrome/linux-151.0.7922.71/chrome-linux64/chrome`
 
 ### If you get nltk certificate errors on macOS
 

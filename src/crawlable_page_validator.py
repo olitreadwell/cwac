@@ -247,7 +247,8 @@ class CrawlablePageValidator:
     https://example.com/ is being scanned
 
     Args:
-        url (str): A URL to filter
+        current_base_url (str): The base URL currently being scanned
+        current_url (str): The URL to check for intersections
 
     Returns:
         bool: True if URL is valid, else False

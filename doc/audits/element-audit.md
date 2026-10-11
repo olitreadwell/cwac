@@ -29,7 +29,7 @@ the JSON config.
       "class_name": "ElementAudit", // Dev use only - do not change this.
 
       //
-      "target_element_css_selector": "a[href=\"#main\"]"
+      "target_element_css_selector": "input:not([type='search'])"
     }
     // ...
   }
