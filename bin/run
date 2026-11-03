@@ -12,9 +12,16 @@ bin/build
 # make sure the "results" directory exists
 mkdir -p results
 
+# forward any extra request headers set locally into the container
+docker_extra_args=()
+if [[ -n "${EXTRA_HEADERS:-}" ]]; then
+  docker_extra_args+=(--env "EXTRA_HEADERS=${EXTRA_HEADERS}")
+fi
+
 docker run --rm \
   --mount 'type=bind,src=./config,dst=/cwac/config' \
   --mount 'type=bind,src=./base_urls,dst=/cwac/base_urls' \
   --mount 'type=bind,src=./results,dst=/cwac/results' \
   --env CHROME_EXTRA_ARGS='--no-sandbox,--disable-dev-shm-usage' \
+  "${docker_extra_args[@]}" \
   cwac .venv/bin/python -u cwac.py "${@}"
