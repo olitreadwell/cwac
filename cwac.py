@@ -17,7 +17,7 @@ from config import Config
 from src.analytics import Analytics
 from src.browser import Browser
 from src.crawler import Crawler, SiteData
-from src.output import output_init_message
+from src.output import generate_axe_core_template_aware_results, output_init_message
 
 logger = logging.getLogger('cwac')
 
@@ -31,12 +31,20 @@ class CWAC:
     Args:
         thread_id (int): identifier for the thread
     """
-    # Create the webdriver instance (wrapped in `Browser)` for this thread. This
+    # Create the webdriver instance (wrapped in `Browser`) for this thread. This
     # instance is essentially shared mutable state for all code in the thread.
-    browser = Browser(self.config, thread_id)
-    crawl = Crawler(config=self.config, browser=browser, url_queue=self.url_queue, analytics=self.analytics)
-    crawl.iterate_through_base_urls()
-    browser.close()
+    try:
+      browser = Browser(self.config, thread_id)
+      try:
+        crawl = Crawler(config=self.config, browser=browser, url_queue=self.url_queue, analytics=self.analytics)
+        crawl.iterate_through_base_urls()
+      finally:
+        browser.close()
+    except Exception:
+      # log the exception immediately so it can be seen without having to wait for
+      # the other threads to finish, since that could take a while on large scans
+      logger.exception('Thread %i crashed', thread_id)
+      raise
 
   def spawn_threads(self) -> None:
     """Create a number of threads to speed up execution.
@@ -90,7 +98,7 @@ class CWAC:
         queue.put(skipped_item)
         skipped_item = None
 
-    # ensure that the last item is added, even if its consecutive
+    # ensure that the last item is added, even if it's consecutive
     if skipped_item is not None:
       queue.put(skipped_item)
 
@@ -157,7 +165,7 @@ class CWAC:
     )
 
     try:
-      src.output.generate_axe_core_template_aware_results(self.config.audit_name)
+      generate_axe_core_template_aware_results(self.config.audit_name)
     except FileNotFoundError:
       logger.warning('Skipped generating axe-core template aware csv as axe-core results were not present')
 

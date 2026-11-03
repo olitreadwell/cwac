@@ -6,12 +6,12 @@ import json
 import os
 import platform
 import re
-import sys
 import threading
-import urllib.robotparser
 from logging import INFO, FileHandler, Formatter, getLogger
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 from urllib import parse
+
+import src.urls
 
 logger = getLogger('cwac')
 
@@ -21,10 +21,9 @@ getLogger('usp').parent = logger
 class SiteData(TypedDict):
   """Holds data for a site that should be crawled and audited."""
 
-  organisation: str
-  url: str
-  sector: str
+  url: src.urls.NormalizedUrl
   supports_head: bool
+  columns: dict[str, str]
 
 
 class Config:
@@ -38,18 +37,12 @@ class Config:
   headless: bool
   max_links_per_domain: int
   thread_count: int
-  browser: str
   chrome_binary_location: str
   chrome_driver_location: str
   user_agent: str
-  user_agent_product_token: str
-  follow_robots_txt: bool
   script_timeout: int
   page_load_timeout: int
-  delay_between_page_loads: int
-  delay_between_viewports: int
   delay_after_page_load: int
-  only_allow_https: bool
   perform_header_check: bool
   shuffle_base_urls: bool
   base_urls_visit_path: str
@@ -59,7 +52,6 @@ class Config:
   filter_to_urls: list[str]
   viewport_sizes: dict[str, dict[str, int]]
   audit_plugins: dict[str, dict[str, Any]]
-  record_unexpected_response_codes: bool
   force_open_details_elements: bool
 
   reporting: dict[str, Any] | None
@@ -69,7 +61,7 @@ class Config:
 
   def __init__(self, config_filename: str) -> None:
     """Read config.json into self.config."""
-    with open('./config/' + config_filename, 'r', encoding='utf-8-sig') as file:
+    with open('./config/' + config_filename, encoding='utf-8-sig') as file:
       self.config: dict[str, Any] = json.load(file)
 
     self.unique_id = 0
@@ -77,8 +69,8 @@ class Config:
     # Sanitise audit_name
     self.config['audit_name'] = self.sanitise_string(self.audit_name)
 
-    # Add a timestamp to the test name
-    timestamp = datetime.datetime.now().strftime('%Y-%m-%d_%H-%M-%S')
+    # Add a timestamp to the test name, using the local timezone
+    timestamp = datetime.datetime.now(tz=datetime.UTC).astimezone().strftime('%Y-%m-%d_%H-%M-%S')
     self.config['audit_name'] = timestamp + '_' + self.audit_name
 
     # Create the results folder
@@ -104,12 +96,8 @@ class Config:
 
     self.audit_subjects: list[SiteData] = self.__import_base_urls()
 
-    self.url_lookup = self.__map_base_urls_by_domain()
-
-    # global variable to store robots.txt data
-    # the Crawler queries this and populates it
-    # if no entry is found for a website.
-    self.robots_txt_cache: dict[str, urllib.robotparser.RobotFileParser] = {}
+    # store a set of normalized domains
+    self.url_lookup = {parse.urlparse(subject['url']).netloc.lower().strip() for subject in self.audit_subjects}
 
     self.config.setdefault('crawl_sitemaps', True)
 
@@ -139,27 +127,14 @@ class Config:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-  def __normalize_url(self, url: str) -> str:
-    """Normalize a URL, making it lowercase and stripping out any extra whitespace.
-
-    Args:
-        url (str): URL to normalize
-
-    Returns:
-        str: normalize URL
-    """
-    parsed = parse.urlparse(url)
-    modified = parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower())
-    return parse.urlunparse(modified)
-
-  def __import_base_urls_without_head_support(self) -> set[str]:
+  def __import_base_urls_without_head_support(self) -> set[src.urls.NormalizedUrl]:
     """Import base urls that don't support HEAD requests.
 
     Returns:
-        set[str]: a list of base urls that don't support HEAD requests
+        set[src.urls.NormalizedUrl]: a list of base urls that don't support HEAD requests
     """
     folder_path = self.base_urls_nohead_path
-    base_urls = set()
+    base_urls: set[src.urls.NormalizedUrl] = set()
 
     for filename in os.listdir(folder_path):
       if filename.endswith('.csv'):
@@ -171,18 +146,21 @@ class Config:
           reader = csv.reader(file)
           header = next(reader)
           for row in reader:
-            dict_row = cast(dict[str, str], dict(zip(header, row)))
+            dict_row = dict(zip(header, row, strict=True))
 
             # Strip whitespace from URL
             dict_row['url'] = dict_row['url'].strip()
 
-            # Make the URL lowercase
-            dict_row['url'] = self.__normalize_url(dict_row['url'])
+            try:
+              url = src.urls.normalize_url(dict_row['url'])
+            except ValueError:
+              logger.warning('URL is not valid, skipping %s', dict_row['url'])
+              continue
 
-            base_urls.add(dict_row['url'])
+            base_urls.add(url)
     return base_urls
 
-  def __should_skip_row(self, row: SiteData) -> bool:
+  def __should_skip_row(self, columns: dict[str, str]) -> bool:
     """Check if a row should be skipped.
 
     Checks if a URL/Organisation should be included
@@ -191,7 +169,7 @@ class Config:
     filter_to_urls.
 
     Args:
-        subject (AuditSubject): an audit subject parsed from a CSV
+        columns (dict[str, str]): a raw row parsed from a CSV
 
     Returns:
         bool: True if the subject should be skipped, False otherwise
@@ -199,14 +177,14 @@ class Config:
     found_org = False
     if self.filter_to_organisations:
       for org in self.filter_to_organisations:
-        if org in row['organisation']:
+        if org in columns.get('organisation', ''):
           found_org = True
           break
 
     found_url = False
     if self.filter_to_urls:
       for url in self.filter_to_urls:
-        if url in row['url']:
+        if url in columns['url']:
           found_url = True
           break
 
@@ -235,40 +213,45 @@ class Config:
         ) as file:
           reader = csv.reader(file)
           header = next(reader)
+
+          if 'url' not in header:
+            raise ValueError(f'{filename} does not have the required "url" header')
+
           for row in reader:
-            if len(row) != 3:
-              raise ValueError(
-                'CSV files must have 3 columns',
-                row,
-                filename,
+            try:
+              columns = dict(zip(header, row, strict=True))
+            except ValueError as e:
+              raise ValueError(f"{filename} has a row whose columns don't match the headers: {row}") from e
+
+            if not columns['url']:
+              raise ValueError(f'{filename} has a row whose "url" column is blank: {row}')
+
+            if self.__should_skip_row(columns):
+              continue
+
+            try:
+              subject = SiteData(
+                url=src.urls.normalize_url(columns['url']),
+                supports_head=True,
+                columns=columns,
               )
-
-            subject = cast(SiteData, dict(zip(header, row)))
-
-            # Parse the URL to get just the domain
-            parsed_url = parse.urlparse(subject['url'])
-
-            if parsed_url.scheme == '':
-              logger.error('URL missing protocol, skipping %s', subject['url'])
+            except ValueError:
+              logger.warning('URL is not valid, skipping %s', columns['url'])
               continue
 
-            # If only_allow_https is True, then only add
-            # URLs that start with https://
-            if self.only_allow_https and parsed_url.scheme != 'https':
-              logger.error(
-                'only_allow_https is True, skipping %s',
-                subject['url'],
-              )
-              continue
-
-            if self.__should_skip_row(subject):
-              continue
-
-            subject['url'] = self.__normalize_url(subject['url'])
+            subject['columns']['url'] = subject['url']
 
             subject['supports_head'] = subject['url'] not in headless_base_urls
 
             subjects.append(subject)
+
+    all_columns = sorted(set().union(*[subject['columns'].keys() for subject in subjects]))
+
+    # ensure each site has the same columns, otherwise
+    # we'll get errors when trying to write our csvs
+    for subject in subjects:
+      for column in all_columns:
+        subject['columns'].setdefault(column, '')
 
     return subjects
 
@@ -281,14 +264,16 @@ class Config:
     """
     info = platform.uname()
 
+    chrome_version = None
+
     if self.chrome_binary_location == 'auto':
-      chrome_version = self.__determine_chrome_version()
+      chrome_version = self._determine_chrome_version()
 
       if info.system == 'Linux' and info.machine == 'x86_64':
         self.chrome_binary_location = f'./chrome/linux-{chrome_version}/chrome-linux64/chrome'
       elif info.system == 'Darwin' and info.machine == 'arm64':
         # pylint: disable-next=line-too-long
-        self.chrome_binary_location = f'./chrome/mac_arm-{chrome_version}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'  # noqa: E501
+        self.chrome_binary_location = f'./chrome/mac_arm-{chrome_version}/chrome-mac-arm64/Google Chrome for Testing.app/Contents/MacOS/Google Chrome for Testing'
       else:
         raise ValueError(
           f'chrome_binary_location cannot be automatically determined for {info.system} {info.machine} '
@@ -296,6 +281,9 @@ class Config:
         )
 
     if self.chrome_driver_location == 'auto':
+      if chrome_version is None:
+        chrome_version = self._determine_chrome_version()
+
       if info.system == 'Linux' and info.machine == 'x86_64':
         self.chrome_driver_location = f'./chromedriver/linux-{chrome_version}/chromedriver-linux64/chromedriver'
       elif info.system == 'Darwin' and info.machine == 'arm64':
@@ -306,8 +294,8 @@ class Config:
           f'- please set chrome_driver_location manually'
         )
 
-  def __determine_chrome_version(self) -> str:
-    with open('package.json', 'r', encoding='utf-8-sig') as file:
+  def _determine_chrome_version(self) -> str:
+    with open('package.json', encoding='utf-8-sig') as file:
       package_json = json.load(file)
 
       return str(package_json['config']['chromeVersion'])
@@ -344,76 +332,6 @@ class Config:
         name (str): the name of the attribute (in config.json)
     """
     return self.config[name]
-
-  def read_config(self) -> Any:
-    """Read the config.json file and return it.
-
-    Returns:
-        dict (Any): a dict of the contents of test_config.json
-    """
-    # First arg passed to CWAC is the config filename
-    if len(sys.argv) > 1:
-      config_filename = sys.argv[1]
-      # Only accept alphanumeric, underscores, dots, and hyphens
-      if not re.match(r'^[a-zA-Z0-9_.-]+$', config_filename):
-        raise ValueError('config_filename must be alphanumeric, underscores, and hyphens')
-    else:
-      config_filename = 'config_default.json'
-    with open('./config/' + config_filename, 'r', encoding='utf-8-sig') as file:
-      # Write the config file to the results folder
-      return json.load(file)
-
-  def lookup_organisation(self, url: str) -> dict[str, str]:
-    """Lookup the agency details from a URL.
-
-    Args:
-        url (str): the URL to lookup
-
-    Returns:
-        dict[str, str]: a dictionary with "organisation" and
-        "sector" as the keys, and the agency name and sector as
-        the values.
-    """
-    # Parse the URL to get just the domain
-    parsed_url = parse.urlparse(url)
-    domain = parsed_url.netloc.lower()
-
-    if domain not in self.url_lookup:
-      logger.warning('Agency data missing for: %s', url)
-      return {'organisation': 'Unknown', 'sector': 'Unknown'}
-    return {
-      'organisation': self.url_lookup[domain]['organisation'],
-      'sector': self.url_lookup[domain]['sector'],
-    }
-
-  def __map_base_urls_by_domain(self) -> dict[str, dict[str, str]]:
-    """Build a dictionary mapping base url information to their domain.
-
-    This data is primarily used for looking up the agency details
-    given a URL by using the lookup_organisation() method.
-
-    Returns:
-        dict[str, dict[str, str]]: a dictionary with the URL as the key,
-        and a list that contains the agency name, and the sector
-        as the value.
-    """
-    base_urls: dict[str, dict[str, str]] = {}
-
-    for subject in self.audit_subjects:
-      # Parse the URL to get just the domain
-      parsed_url = parse.urlparse(subject['url'])
-
-      # Cast to lowercase
-      domain = parsed_url.netloc.lower()
-
-      # Strip whitespace
-      domain = domain.strip()
-
-      base_urls[domain] = {
-        'organisation': subject['organisation'],
-        'sector': subject['sector'],
-      }
-    return base_urls
 
   def is_path_subdir(self, path: str, parent_path: str) -> bool:
     """Check if a path is a subdirectory of another path.

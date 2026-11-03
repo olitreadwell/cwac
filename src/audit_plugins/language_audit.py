@@ -15,7 +15,6 @@ import nltk  # type: ignore
 from bs4 import BeautifulSoup
 from nltk.corpus import cmudict  # type: ignore
 from nltk.sentiment import SentimentIntensityAnalyzer  # type: ignore
-from selenium.common import WebDriverException
 
 from src.audit_plugins.default_audit import DefaultAudit
 
@@ -26,7 +25,13 @@ nltk.download('punkt_tab', download_dir=nltk_dir, quiet=True)
 nltk.download('cmudict', download_dir=nltk_dir, quiet=True)
 nltk.download('vader_lexicon', download_dir=nltk_dir, quiet=True)
 nltk.data.path.append(nltk_dir)
-dictionary = cmudict.dict()
+
+# Map each word to the number of syllables in its first pronunciation; we only
+# need the counts, which take a fraction of the memory of the full dictionary
+syllables_by_word: dict[str, int] = {}
+for _word, _pronunciation in cast(list[tuple[str, list[str]]], cmudict.entries()):
+  if _word not in syllables_by_word:
+    syllables_by_word[_word] = sum(1 for phoneme in _pronunciation if phoneme[-1].isdigit())
 
 logger = logging.getLogger('cwac')
 
@@ -35,6 +40,11 @@ class LanguageAudit(DefaultAudit):
   """Language analysis for web pages."""
 
   audit_type = 'LanguageAudit'
+
+  modifies_page = False
+
+  # Stores Readability.js and friends to prevent re-reading the files
+  readability_js = ''
 
   def run(self) -> list[dict[str, Any]] | bool:
     """Run the audit.
@@ -46,22 +56,30 @@ class LanguageAudit(DefaultAudit):
     lang = self.__get_document_lang()
 
     if lang != 'en' and not lang.startswith('en-'):
-      logger.warning('Test can only be run on English pages but lang for this page is %s: %s', lang, self.url)
+      logger.info(
+        'Test can only be run on English pages but lang for this page is %s: %s', lang, self.browser.requested_url
+      )
       return True
 
     # Scrape main content
     content = self.scrape_main_content()
 
+    # Split the text into sentences
+    sentences: list[str] = nltk.sent_tokenize(content)
+
+    # Split the text into words
+    words: list[str] = nltk.word_tokenize(content)
+
     # Check if test is not applicable (i.e. not enough text)
-    if self.is_test_not_applicable(content):
-      logger.warning('Test is not applicable: %s', self.url)
+    if self.is_test_not_applicable(sentences, words):
+      logger.info('Test is not applicable: %s', self.browser.requested_url)
       return True
 
     # Calculate Flesch-Kincaid Grade Level
-    fkgl = self.flesch_kincaid_grade_level(content)
+    fkgl = self.flesch_kincaid_grade_level(sentences, words)
 
     # Calculate SMOG Grade Level
-    smog = self.simple_measure_of_gobbledygook(content)
+    smog = self.simple_measure_of_gobbledygook(sentences)
 
     # Create output rows
     output_rows = [{**fkgl, 'smog_gl': smog}]
@@ -103,11 +121,10 @@ class LanguageAudit(DefaultAudit):
       output = output[0].upper() + output[1:]
 
     # If it ends with a colon, remove it
-    if output.endswith(':'):
-      output = output[:-1]
+    output = output.removesuffix(':')
 
     # Common punctuation that ends a sentence
-    end_punct = set(['.', '!', '?'])
+    end_punct = {'.', '!', '?'}
 
     # If the element's content doesn't end with punctuation, add a period
     if not output.endswith(tuple(end_punct)):
@@ -144,6 +161,30 @@ class LanguageAudit(DefaultAudit):
         pass
       img.decompose()
 
+  def _load_readability(self) -> None:
+    """Load Readability.js into a string."""
+    if not LanguageAudit.readability_js:
+      path_1 = './node_modules/@mozilla/readability/Readability.js'
+      with open(path_1, encoding='utf-8-sig') as file:
+        readability_js = file.read()
+
+      path_2 = './node_modules/@mozilla/readability/Readability-readerable.js'
+      with open(path_2, encoding='utf-8-sig') as file:
+        readability_js += file.read()
+
+      # JavaScript to execute Readability
+      LanguageAudit.readability_js = f"""
+        {readability_js}
+        (() => {{
+          const documentCopy = document.cloneNode(true);
+          if (isProbablyReaderable(documentCopy) === false) return false;
+          const reader = new Readability(documentCopy);
+          const article = reader.parse();
+          if (article === null) return false;
+          return [article.title, article.content];
+        }})();
+      """
+
   def scrape_main_content(self) -> str:
     """Scrapes the main content out of a webpage, v2.
 
@@ -152,37 +193,14 @@ class LanguageAudit(DefaultAudit):
     Returns:
         str: the main content of the page
     """
-    # Read Readability.js
-    path_1 = './node_modules/@mozilla/readability/Readability.js'
-    with open(path_1, 'r', encoding='utf-8-sig') as file:
-      readability_js = file.read()
+    self._load_readability()
 
-    path_2 = './node_modules/@mozilla/readability/Readability-readerable.js'
-    with open(path_2, 'r', encoding='utf-8-sig') as file:
-      readability_js += file.read()
-
-    # JavaScript to execute Readability
-    final_js = f"""
-        {readability_js}
-        const documentCopy = document.cloneNode(true);
-        if (isProbablyReaderable(documentCopy) === false) return false;
-        const reader = new Readability(documentCopy);
-        const article = reader.parse();
-        if (article === null) return false;
-        return [article.title, article.content];
-        """
-
-    # Execute JavaScript
-    try:
-      content = self.browser.driver.execute_script(final_js)
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception('WebDriver exception for Readability')
-      return ''
+    content = self.browser.evaluate(LanguageAudit.readability_js)
 
     if content is False:
-      logger.warning(
+      logger.info(
         'Readability rejected the page. %s',
-        self.url,
+        self.browser.requested_url,
       )
       return ''
 
@@ -206,11 +224,7 @@ class LanguageAudit(DefaultAudit):
     return str(flat_output)
 
   def __get_document_lang(self) -> str:
-    try:
-      return cast(str, self.browser.driver.execute_script('return document.documentElement.lang')).lower()
-    except WebDriverException:
-      logger.exception('Could not get document element language')
-      return ''
+    return cast(str, self.browser.evaluate('document.documentElement.lang')).lower()
 
   def count_syllables(self, word: str) -> int:
     """Count num of syllables in a word.
@@ -221,29 +235,21 @@ class LanguageAudit(DefaultAudit):
     Returns:
         int: the number of syllables in the word
     """
-    try:
-      return [len(list(y for y in x if y[-1].isdigit())) for x in dictionary[word.lower()]][0]
-    except KeyError:
-      return 1
+    return syllables_by_word.get(word.lower(), 1)
 
-  def is_test_not_applicable(self, text: str) -> bool:
+  def is_test_not_applicable(self, sentences: list[str], words: list[str]) -> bool:
     """Return True if the test is unlikely to produce good results.
 
     Some webpages have insufficient text data to perform analysis.
     This function checks if the text is likely to produce good results.
 
     Args:
-        text (str): the text to check
+        sentences (list[str]): the sentences to check
+        words (list[str]): the words to check
 
     Returns:
         bool: True if the test is unlikely to produce good results
     """
-    # Split the text into sentences
-    sentences = nltk.sent_tokenize(text)
-
-    # Split the text into words
-    words = nltk.word_tokenize(text)
-
     # If there are less than 10 sentences, the test is not applicable
     if len(sentences) < 10:
       return True
@@ -254,24 +260,19 @@ class LanguageAudit(DefaultAudit):
 
     return False
 
-  def flesch_kincaid_grade_level(self, text: str) -> dict[Any, Any]:
+  def flesch_kincaid_grade_level(self, sentences: list[str], words: list[str]) -> dict[Any, Any]:
     """Calculate the Flesch-Kincaid Grade Level.
 
     The Flesch-Kincaid Grade Level is a readability test that estimates
     the years of education needed to understand a text.
 
     Args:
-        text (str): the text to calculate the Flesch-Kincaid Grade Level
+        sentences (list[str]): the sentences to calculate the Flesch-Kincaid Grade Level
+        words (list[str]): the words to calculate the Flesch-Kincaid Grade Level
 
     Returns:
-        float: the Flesch-Kincaid Grade Level
+        dict[Any, Any]: the Flesch-Kincaid Grade Level
     """
-    # Split the text into sentences
-    sentences = nltk.sent_tokenize(text)
-
-    # Split the text into words
-    words = nltk.word_tokenize(text)
-
     # Calculate the average number of words per sentence
     words_per_sentence = len(words) / len(sentences)
 
@@ -314,21 +315,18 @@ class LanguageAudit(DefaultAudit):
     scores = {f'sentiment_{k}': v for k, v in scores.items()}
     return scores
 
-  def simple_measure_of_gobbledygook(self, text: str) -> str:
+  def simple_measure_of_gobbledygook(self, sentences: list[str]) -> str:
     """Calculate the simple measure of gobbledygook (SMOG).
 
     SMOG is a readability test that estimates the years of education
     needed to understand a text.
 
     Args:
-        text (str): the text to calculate the SMOG
+        sentences (list[str]): the sentences to calculate the SMOG
 
     Returns:
         str: the SMOG score as a .3f str
     """
-    # Split the text into sentences
-    sentences = nltk.sent_tokenize(text)
-
     # Calculate the number of sentences with 3 or more syllables
     polysyllabic_words = 0
     for sentence in sentences:
