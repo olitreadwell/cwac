@@ -41,16 +41,6 @@
       "type": "string",
       "minLength": 1
     },
-    "user_agent_product_token": {
-      "description": "The product token portion of the User-Agent, used for robots.txt identification. Must not contain whitespace",
-      "type": "string",
-      "minLength": 1,
-      "pattern": "^\\S+$"
-    },
-    "follow_robots_txt": {
-      "description": "Whether to respect robots.txt directives when crawling",
-      "type": "boolean"
-    },
     "script_timeout": {
       "description": "Timeout in seconds for JavaScript execution in the browser",
       "type": "number",
@@ -61,24 +51,10 @@
       "type": "number",
       "minimum": 0
     },
-    "delay_between_page_loads": {
-      "description": "Seconds to wait between loading consecutive pages. Use to reduce server load",
-      "type": "number",
-      "minimum": 0
-    },
-    "delay_between_viewports": {
-      "description": "Seconds to wait after resizing the browser to a new viewport before running audits",
-      "type": "number",
-      "minimum": 0
-    },
     "delay_after_page_load": {
       "description": "Seconds to wait after a page load completes before running audits",
       "type": "number",
       "minimum": 0
-    },
-    "only_allow_https": {
-      "description": "When true, non-HTTPS URLs are skipped and not audited",
-      "type": "boolean"
     },
     "perform_header_check": {
       "description": "Whether to perform HTTP HEAD requests to pre-check URLs before auditing them",
@@ -100,10 +76,6 @@
     },
     "crawl_sitemaps": {
       "description": "Whether to crawl sitemaps for base_urls, for additional URLs",
-      "type": "boolean"
-    },
-    "record_unexpected_response_codes": {
-      "description": "Whether to log and record unexpected HTTP response codes encountered during crawling",
       "type": "boolean"
     },
     "force_open_details_elements": {
@@ -317,19 +289,13 @@
     "chrome_binary_location",
     "chrome_driver_location",
     "user_agent",
-    "user_agent_product_token",
-    "follow_robots_txt",
     "script_timeout",
     "page_load_timeout",
-    "delay_between_page_loads",
-    "delay_between_viewports",
     "delay_after_page_load",
-    "only_allow_https",
     "perform_header_check",
     "shuffle_base_urls",
     "base_urls_visit_path",
     "base_urls_nohead_path",
-    "record_unexpected_response_codes",
     "force_open_details_elements",
     "filter_to_organisations",
     "filter_to_urls",

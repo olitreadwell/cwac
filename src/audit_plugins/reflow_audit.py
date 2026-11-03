@@ -2,7 +2,7 @@
 
 Tests WCAG 1.4.10 Reflow by resizing the browser window to 320px
 
-Unforuntately there's no API to set the zoom level in Selenium,
+Unfortunately there's no API to set the zoom level in Selenium,
 so we have to restart the browser in headless mode to test it.
 If the browser's already headless, we just resize the window.
 
@@ -15,10 +15,10 @@ Disclaimer:
 """
 
 import logging
-from typing import Any
+from typing import Any, Unpack
 
 from config import Config
-from src.audit_plugins.default_audit import DefaultAudit
+from src.audit_plugins.default_audit import AuditKwargs, DefaultAudit
 from src.browser import Browser
 
 logger = logging.getLogger('cwac')
@@ -29,7 +29,9 @@ class ReflowAudit(DefaultAudit):
 
   audit_type = 'ReflowAudit'
 
-  def __init__(self, config: Config, browser: Browser, **kwargs: Any) -> None:
+  modifies_page = False
+
+  def __init__(self, config: Config, browser: Browser, **kwargs: Unpack[AuditKwargs]) -> None:
     """Init variables."""
     super().__init__(config, browser, **kwargs)
 
@@ -44,12 +46,9 @@ class ReflowAudit(DefaultAudit):
   def run(self) -> list[dict[str, Any]] | bool:
     """Run the test.
 
-    WCAG 1.4.10 Reflow is partially tested by zooming
-    to 400% and checking if the page overflows. This requires
-    a viewport_size to be specified in config.json that has a
-    width of exactly 1280px. If no such viewport_size is
-    specified, the test will instead default to a simple
-    check for overflow of the page.
+    WCAG 1.4.10 Reflow is partially tested by resizing
+    the viewport to a width of exactly 320px and checking
+    if the page overflows.
 
     Returns:
         bool: if the audit fails
@@ -69,13 +68,11 @@ class ReflowAudit(DefaultAudit):
       print(msg)
       return False
 
-    # Determine if there is a horisontal overflow
-    try:
-      self.browser.driver.execute_script('window.scrollTo(100, 0);')
-      overflow_amount = self.browser.driver.execute_script('return window.scrollX;')
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception('Failed to scroll to 100px %s', self.url)
-      return False
+    # Determine if there is a horizontal overflow
+    overflow_amount = self.browser.evaluate("""
+      const scrollingElement = document.scrollingElement ?? document.documentElement;
+      scrollingElement.scrollWidth - scrollingElement.clientWidth;
+    """)
 
     # Run a ScreenshotAudit if the page overflows
     if self.config.audit_plugins['reflow_audit']['screenshot_failures'] and overflow_amount > 0:
@@ -85,27 +82,17 @@ class ReflowAudit(DefaultAudit):
       screenshot_audit = ScreenshotAudit(
         config=self.config,
         browser=self.browser,
-        url=self.url,
         site_data=self.site_data,
         audit_id=self.audit_id,
         page_id=self.page_id,
       )
       screenshot_audit.run()
 
-    # Reset scroll position
-    try:
-      self.browser.driver.execute_script('window.scrollTo(0, 0);')
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception(
-        'Failed to reset scroll position after test %s',
-        self.url,
-      )
-
     return [
       {
         **self._default_audit_row,
         'audit_type': ReflowAudit.audit_type,
-        'url': self.url,
+        'url': self.browser.requested_url,
         'overflows': overflow_amount > 0,
         'num_issues': 1 if overflow_amount > 0 else 0,
         'overflow_amount_px': overflow_amount,

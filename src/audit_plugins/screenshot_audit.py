@@ -18,6 +18,8 @@ class ScreenshotAudit(DefaultAudit):
 
   audit_type = 'ScreenshotAudit'
 
+  modifies_page = False
+
   def screenshot(self) -> Any:
     """Take a screenshot of the page that's loaded in the browser.
 
@@ -63,15 +65,12 @@ class ScreenshotAudit(DefaultAudit):
     # ) as file:
     #     file.write(source)
 
-    try:
-      cv2.imwrite(
-        screenshot_path,
-        self.screenshot(),
-        [cv2.IMWRITE_PNG_COMPRESSION, 9],
-      )
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception('Failed to save screenshot')
-      return False
+    if not cv2.imwrite(
+      screenshot_path,
+      self.screenshot(),
+      [cv2.IMWRITE_PNG_COMPRESSION, 9],
+    ):
+      raise OSError(f'Failed to save screenshot to {screenshot_path}')
 
     return [
       {

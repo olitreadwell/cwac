@@ -6,12 +6,10 @@ This plugin uses axe-core to test a webpage.
 import hashlib
 import logging
 import sys
-from typing import Any
-
-import selenium
+from typing import Any, Unpack
 
 from config import Config
-from src.audit_plugins.default_audit import DefaultAudit
+from src.audit_plugins.default_audit import AuditKwargs, DefaultAudit
 from src.browser import Browser
 
 logger = logging.getLogger('cwac')
@@ -25,11 +23,9 @@ class AxeCoreAudit(DefaultAudit):
   # Stores axe.min.js to prevent re-reading the file
   axe_core_js = ''
 
-  def __init__(self, config: Config, browser: Browser, **kwargs: Any) -> None:
+  def __init__(self, config: Config, browser: Browser, **kwargs: Unpack[AuditKwargs]) -> None:
     """Init variables."""
     super().__init__(config, browser, **kwargs)
-    self.base_url = kwargs['site_data']['url']
-    self.viewport_size = kwargs['viewport_size']
     self.best_practice = self.config.audit_plugins['axe_core_audit']['best-practice']
 
   def best_practice_string(self, best_practice: bool) -> str:
@@ -44,7 +40,7 @@ class AxeCoreAudit(DefaultAudit):
     """Return a hash of an axe-core issue."""
     # hashes are calculated with: "base_url", "id", "html", "viewport_size"
 
-    raw_str = self.base_url + violation['id'] + node['html'] + str(self.viewport_size)
+    raw_str = self.site_data['url'] + violation['id'] + node['html'] + str(self.browser.viewport_size)
 
     return hashlib.shake_256(raw_str.encode()).hexdigest(5)
 
@@ -63,14 +59,22 @@ class AxeCoreAudit(DefaultAudit):
         # Being unable to load axe.min.js indicates a misconfigured environment
         # that we cannot recover from, so exit the program.
         sys.exit(1)
-      run_axe = (
-        'document.getAnimations().forEach(animation => animation.cancel());'
-        'var callback = arguments[arguments.length - 1];'
-        'axe.run({xpath: true, '
-        "resultTypes:['violations']"
-        '}).then((r)=> {callback(r)});'
-      )
-      AxeCoreAudit.axe_core_js = f'{axe_min_js}{run_axe}'
+
+      # set_script_timeout doesn't apply to CDP commands, and Runtime.evaluate has no async timeout, so we race explicitly
+      AxeCoreAudit.axe_core_js = f"""
+        {axe_min_js}
+        document.getAnimations().forEach(animation => animation.cancel());
+        Promise.race([
+          axe.run({{ xpath: true, resultTypes: ['violations'] }}),
+          new Promise((_, reject) => {{
+            const timeout = {self.config.script_timeout};
+            setTimeout(
+              () => {{ reject(new Error(`script timed out after ${{timeout}} seconds`)); }},
+              timeout * 1000
+            );
+          }})
+        ]);
+      """
 
   def run_generate_expanded_results(self, axe_core_results: dict[Any, Any]) -> list[dict[Any, Any]]:
     """Generate an expanded list of axe-core violations.
@@ -92,8 +96,6 @@ class AxeCoreAudit(DefaultAudit):
         if not self.best_practice and 'best-practice' in violation['tags']:
           continue
 
-        # Truncate html to 100 characters so
-        # the CSV is not too chonky
         best_practice_str = self.best_practice_string('best-practice' in violation['tags'])
         results_dict = {
           'audit_type': AxeCoreAudit.audit_type,
@@ -105,6 +107,8 @@ class AxeCoreAudit(DefaultAudit):
           'helpUrl': violation['helpUrl'],
           'id': violation['id'],
           'impact': node['impact'],
+          # Truncate html to 100 characters so
+          # the CSV is not too chonky
           'html': node['html'][:100],
           'tags': violation['tags'],
           'best-practice': best_practice_str,
@@ -141,16 +145,7 @@ class AxeCoreAudit(DefaultAudit):
     """
     self.load_axe_core()
 
-    try:
-      logger.info('Injecting axe %s', self.url)
-      axe_core_results = self.browser.driver.execute_async_script(AxeCoreAudit.axe_core_js)
-      logger.info('axe-core has returned results %s', self.url)
-    except selenium.common.exceptions.JavascriptException:
-      logger.exception('JavaScript exception %s', self.url)
-      return False
-    except selenium.common.exceptions.TimeoutException:
-      logger.exception('Timeout exception %s', self.url)
-      return False
+    axe_core_results = self.browser.evaluate(AxeCoreAudit.axe_core_js)
 
     # Get page information from DefaultAudit
     default_audit_row = self._default_audit_row

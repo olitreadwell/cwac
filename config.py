@@ -6,12 +6,12 @@ import json
 import os
 import platform
 import re
-import sys
 import threading
-import urllib.robotparser
 from logging import INFO, FileHandler, Formatter, getLogger
-from typing import Any, TypedDict, cast
+from typing import Any, TypedDict
 from urllib import parse
+
+import src.urls
 
 logger = getLogger('cwac')
 
@@ -21,7 +21,7 @@ getLogger('usp').parent = logger
 class SiteData(TypedDict):
   """Holds data for a site that should be crawled and audited."""
 
-  url: str
+  url: src.urls.NormalizedUrl
   supports_head: bool
   columns: dict[str, str]
 
@@ -40,14 +40,9 @@ class Config:
   chrome_binary_location: str
   chrome_driver_location: str
   user_agent: str
-  user_agent_product_token: str
-  follow_robots_txt: bool
   script_timeout: int
   page_load_timeout: int
-  delay_between_page_loads: int
-  delay_between_viewports: int
   delay_after_page_load: int
-  only_allow_https: bool
   perform_header_check: bool
   shuffle_base_urls: bool
   base_urls_visit_path: str
@@ -57,7 +52,6 @@ class Config:
   filter_to_urls: list[str]
   viewport_sizes: dict[str, dict[str, int]]
   audit_plugins: dict[str, dict[str, Any]]
-  record_unexpected_response_codes: bool
   force_open_details_elements: bool
 
   reporting: dict[str, Any] | None
@@ -76,7 +70,7 @@ class Config:
     self.config['audit_name'] = self.sanitise_string(self.audit_name)
 
     # Add a timestamp to the test name, using the local timezone
-    timestamp = datetime.datetime.now(tz=datetime.timezone.utc).astimezone().strftime('%Y-%m-%d_%H-%M-%S')
+    timestamp = datetime.datetime.now(tz=datetime.UTC).astimezone().strftime('%Y-%m-%d_%H-%M-%S')
     self.config['audit_name'] = timestamp + '_' + self.audit_name
 
     # Create the results folder
@@ -104,11 +98,6 @@ class Config:
 
     # store a set of normalized domains
     self.url_lookup = {parse.urlparse(subject['url']).netloc.lower().strip() for subject in self.audit_subjects}
-
-    # global variable to store robots.txt data
-    # the Crawler queries this and populates it
-    # if no entry is found for a website.
-    self.robots_txt_cache: dict[str, urllib.robotparser.RobotFileParser] = {}
 
     self.config.setdefault('crawl_sitemaps', True)
 
@@ -138,27 +127,14 @@ class Config:
     handler.setFormatter(formatter)
     logger.addHandler(handler)
 
-  def __normalize_url(self, url: str) -> str:
-    """Normalize a URL, making it lowercase and stripping out any extra whitespace.
-
-    Args:
-        url (str): URL to normalize
-
-    Returns:
-        str: normalize URL
-    """
-    parsed = parse.urlparse(url)
-    modified = parsed._replace(scheme=parsed.scheme.lower(), netloc=parsed.netloc.lower())
-    return parse.urlunparse(modified)
-
-  def __import_base_urls_without_head_support(self) -> set[str]:
+  def __import_base_urls_without_head_support(self) -> set[src.urls.NormalizedUrl]:
     """Import base urls that don't support HEAD requests.
 
     Returns:
-        set[str]: a list of base urls that don't support HEAD requests
+        set[src.urls.NormalizedUrl]: a list of base urls that don't support HEAD requests
     """
     folder_path = self.base_urls_nohead_path
-    base_urls = set()
+    base_urls: set[src.urls.NormalizedUrl] = set()
 
     for filename in os.listdir(folder_path):
       if filename.endswith('.csv'):
@@ -170,18 +146,21 @@ class Config:
           reader = csv.reader(file)
           header = next(reader)
           for row in reader:
-            dict_row = cast(dict[str, str], dict(zip(header, row, strict=True)))
+            dict_row = dict(zip(header, row, strict=True))
 
             # Strip whitespace from URL
             dict_row['url'] = dict_row['url'].strip()
 
-            # Make the URL lowercase
-            dict_row['url'] = self.__normalize_url(dict_row['url'])
+            try:
+              url = src.urls.normalize_url(dict_row['url'])
+            except ValueError:
+              logger.warning('URL is not valid, skipping %s', dict_row['url'])
+              continue
 
-            base_urls.add(dict_row['url'])
+            base_urls.add(url)
     return base_urls
 
-  def __should_skip_row(self, row: SiteData) -> bool:
+  def __should_skip_row(self, columns: dict[str, str]) -> bool:
     """Check if a row should be skipped.
 
     Checks if a URL/Organisation should be included
@@ -190,7 +169,8 @@ class Config:
     filter_to_urls.
 
     Args:
-        subject (AuditSubject): an audit subject parsed from a CSV
+        row (SiteData): an audit subject parsed from a CSV
+        columns (dict[str, str]): a raw row parsed from a CSV
 
     Returns:
         bool: True if the subject should be skipped, False otherwise
@@ -198,14 +178,14 @@ class Config:
     found_org = False
     if self.filter_to_organisations:
       for org in self.filter_to_organisations:
-        if org in row['columns'].get('organisation', ''):
+        if org in columns.get('organisation', ''):
           found_org = True
           break
 
     found_url = False
     if self.filter_to_urls:
       for url in self.filter_to_urls:
-        if url in row['url']:
+        if url in columns['url']:
           found_url = True
           break
 
@@ -244,35 +224,22 @@ class Config:
             except ValueError as e:
               raise ValueError(f"{filename} has a row whose columns don't match the headers: {row}") from e
 
-            subject = SiteData(
-              url=columns['url'],
-              supports_head=True,
-              columns=columns,
-            )
-
-            if not subject['url']:
+            if not columns['url']:
               raise ValueError(f'{filename} has a row whose "url" column is blank: {row}')
 
-            # Parse the URL to get just the domain
-            parsed_url = parse.urlparse(subject['url'])
-
-            if parsed_url.scheme == '':
-              logger.error('URL missing protocol, skipping %s', subject['url'])
+            if self.__should_skip_row(columns):
               continue
 
-            # If only_allow_https is True, then only add
-            # URLs that start with https://
-            if self.only_allow_https and parsed_url.scheme != 'https':
-              logger.error(
-                'only_allow_https is True, skipping %s',
-                subject['url'],
+            try:
+              subject = SiteData(
+                url=src.urls.normalize_url(columns['url']),
+                supports_head=True,
+                columns=columns,
               )
+            except ValueError:
+              logger.warning('URL is not valid, skipping %s', columns['url'])
               continue
 
-            if self.__should_skip_row(subject):
-              continue
-
-            subject['url'] = self.__normalize_url(subject['url'])
             subject['columns']['url'] = subject['url']
 
             subject['supports_head'] = subject['url'] not in headless_base_urls
@@ -298,8 +265,10 @@ class Config:
     """
     info = platform.uname()
 
+    chrome_version = None
+
     if self.chrome_binary_location == 'auto':
-      chrome_version = self.__determine_chrome_version()
+      chrome_version = self._determine_chrome_version()
 
       if info.system == 'Linux' and info.machine == 'x86_64':
         self.chrome_binary_location = f'./chrome/linux-{chrome_version}/chrome-linux64/chrome'
@@ -313,6 +282,9 @@ class Config:
         )
 
     if self.chrome_driver_location == 'auto':
+      if chrome_version is None:
+        chrome_version = self._determine_chrome_version()
+
       if info.system == 'Linux' and info.machine == 'x86_64':
         self.chrome_driver_location = f'./chromedriver/linux-{chrome_version}/chromedriver-linux64/chromedriver'
       elif info.system == 'Darwin' and info.machine == 'arm64':
@@ -323,7 +295,7 @@ class Config:
           f'- please set chrome_driver_location manually'
         )
 
-  def __determine_chrome_version(self) -> str:
+  def _determine_chrome_version(self) -> str:
     with open('package.json', encoding='utf-8-sig') as file:
       package_json = json.load(file)
 
@@ -366,7 +338,7 @@ class Config:
     """Read the config.json file and return it.
 
     Returns:
-        dict (Any): a dict of the contents of test_config.json
+        dict (Any): a dict of the contents of config_default.json
     """
     # First arg passed to CWAC is the config filename
     if len(sys.argv) > 1:

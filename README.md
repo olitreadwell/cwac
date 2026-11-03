@@ -29,11 +29,11 @@ automatically.
 
 CWAC can be used as a mechanism to monitor the New Zealand Government's
 implementation of minimum accessibility standards and guidelines on its
-websites. The primary standard, is the
+websites. The primary standard is the
 [NZ Government Web Accessibility Standard](https://www.digital.govt.nz/standards-and-guidance/nz-government-web-standards/web-accessibility-standard-1-2/),
 which includes
 [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
-Level AA conformance. CWAC enables the partial fulfillment of
+Level AA conformance. CWAC enables the partial fulfilment of
 [Article 9 of the United Nations Convention on the Rights of Persons with Disabilities (CRPD)](https://www.un.org/development/desa/disabilities/convention-on-the-rights-of-persons-with-disabilities/article-9-accessibility.html).
 
 Provided a list of URLs to visit, CWAC will check each page for
@@ -41,9 +41,8 @@ automatically-identifiable accessibility issues and store the results in an
 easy-to-read CSV file.
 
 CWAC can also crawl each page as it goes to determine additional pages to check
-(up to a set max number per URL), respecting `robots.txt` and server signals
-when doing so. This makes it easy to check entire sites without knowing all the
-paths beforehand.
+(up to a set max number per URL). This makes it easy to check entire sites
+without knowing all the paths beforehand.
 
 CWAC is designed to be extensible, so new forms of web testing can be added over
 time. For instance, CWAC could also run
@@ -202,6 +201,17 @@ $ usp ls https://example.org/
         https://example.org/page1.html
 ```
 
+To keep fetching sitemaps quick and bounded however large a site's sitemaps are,
+CWAC limits how much of them it crawls:
+
+- only one level of `sitemapindex` is followed: sitemaps listed by an index in
+  `robots.txt` or at a known location are fetched, but any index nested within
+  those is ignored
+- at most 25 sitemaps are fetched from any one index (including `robots.txt`),
+  chosen at random
+- at most 10 times `max_links_per_domain` page urls are taken from the fetched
+  sitemaps, chosen at random
+
 ## Updating Chrome and Chromedriver versions
 
 You can find the latest _Chrome for Testing_ version manually by visiting
@@ -225,7 +235,7 @@ The steps to upgrade are:
 > [!TIP]
 >
 > macOS might come up with an error stating "chromedriver_mac_arm64" can't be
-> opened because Apple cannot check it for malicious software." This is fixed by
+> opened because Apple cannot check it for malicious software. This is fixed by
 > running `xattr -d com.apple.quarantine <path-to-executable-chromedriver>`
 
 ## Copyright notices

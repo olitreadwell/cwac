@@ -109,18 +109,12 @@ def output_init_message(config: Config) -> None:
   print_log(f'Chrome binary location: {config.chrome_binary_location}')
   print_log(f'Chrome driver location: {config.chrome_driver_location}')
   print_log(f'User agent: {config.user_agent}')
-  print_log(f'User agent product token: {config.user_agent_product_token}')
-  print_log(f'Follow robots.txt: {config.follow_robots_txt}')
   print_log(f'Script timeout: {config.script_timeout} seconds')
   print_log(f'Page load timeout: {config.page_load_timeout} seconds')
-  print_log(f'Delay between page_loads: {config.delay_between_page_loads} seconds')
-  print_log(f'Delay between viewports: {config.delay_between_viewports} seconds')
   print_log(f'Delay after page load: {config.delay_after_page_load} seconds')
-  print_log(f'Only allow HTTPS: {config.only_allow_https}')
   print_log(f'Perform header checks: {config.perform_header_check}')
   print_log(f'Shuffle base urls: {config.shuffle_base_urls}')
   print_log(f'Base urls visit path: {config.base_urls_visit_path}')
-  print_log(f'Recording unexpected response codes: {config.record_unexpected_response_codes}')
   print_log('*' * 80)
 
 
@@ -272,7 +266,7 @@ def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) ->
     same values for those four columns.
   2. `num_pages`
     - A new column added by this function.
-    - It's value is the count of distinct URLs which have the same `issue_id` as the current row.
+    - Its value is the count of distinct URLs which have the same `issue_id` as the current row.
 
   Args:
       input_df (pd.DataFrame): Raw axe-core audit results.
@@ -282,7 +276,7 @@ def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) ->
         these column names are put in the same group.
 
   Returns:
-      pd.DataFrame: Includes all columns from `input_df` as well as the mertrics columns:
+      pd.DataFrame: Includes all columns from `input_df` as well as the metrics columns:
         1. -num_issues (WARNING: this function changes column meaning)
           - Count of all issues with identical values for all columns in `groupby_cols`
         2. num_pages
@@ -329,9 +323,9 @@ def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) ->
   #
   # So the effect is: every row gets a page-count showing how widely that issue
   # appears across different pages.
-  agg_df['num_pages'] = agg_df.apply(lambda row: agg_df[agg_df['issue_id'] == row.issue_id]['url'].nunique(), axis=1)
-
-  # Reset the index of the final DataFrame to ensure a clean output
-  agg_df.reset_index()
+  #
+  # Rows without an issue_id (i.e. pages with no issues) don't match any rows,
+  # so they get a count of 0.
+  agg_df['num_pages'] = agg_df.groupby('issue_id')['url'].transform('nunique').fillna(0).astype(int)
 
   return agg_df
