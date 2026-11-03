@@ -29,21 +29,20 @@ automatically.
 
 CWAC can be used as a mechanism to monitor the New Zealand Government's
 implementation of minimum accessibility standards and guidelines on its
-websites. The primary standard, is the
+websites. The primary standard is the
 [NZ Government Web Accessibility Standard](https://www.digital.govt.nz/standards-and-guidance/nz-government-web-standards/web-accessibility-standard-1-2/),
 which includes
 [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
-Level AA conformance. CWAC enables the partial fulfillment of
+Level AA conformance. CWAC enables the partial fulfilment of
 [Article 9 of the United Nations Convention on the Rights of Persons with Disabilities (CRPD)](https://www.un.org/development/desa/disabilities/convention-on-the-rights-of-persons-with-disabilities/article-9-accessibility.html).
 
-Provided a list of URLS to visit, CWAC will check each page for
+Provided a list of URLs to visit, CWAC will check each page for
 automatically-identifiable accessibility issues and store the results in an
 easy-to-read CSV file.
 
 CWAC can also crawl each page as it goes to determine additional pages to check
-(up to a set max number per URL), respecting `robots.txt` and server signals
-when doing so. This makes it easy to check entire sites without knowing the all
-paths beforehand.
+(up to a set max number per URL). This makes it easy to check entire sites
+without knowing all the paths beforehand.
 
 CWAC is designed to be extensible, so new forms of web testing can be added over
 time. For instance, CWAC could also run
@@ -53,13 +52,15 @@ performance, or the existence of a privacy or copyright statement.
 
 ## Using CWAC
 
-- [Installing CWAC](./doc/install.md)
 - [Understanding audits](./doc/audits.md)
 - [Configuring audits](./doc/audit-config.md)
 - [Running CWAC CLI](./doc/run-cwac.md)
 - [Working with audit results](./doc/audit-results.md)
 
 ## Developing CWAC
+
+Get started by reading the
+[local dev environment setup guide](./doc/local-dev-setup.md).
 
 ### Core technologies
 
@@ -200,6 +201,17 @@ $ usp ls https://example.org/
         https://example.org/page1.html
 ```
 
+To keep fetching sitemaps quick and bounded however large a site's sitemaps are,
+CWAC limits how much of them it crawls:
+
+- only one level of `sitemapindex` is followed: sitemaps listed by an index in
+  `robots.txt` or at a known location are fetched, but any index nested within
+  those is ignored
+- at most 25 sitemaps are fetched from any one index (including `robots.txt`),
+  chosen at random
+- at most 10 times `max_links_per_domain` page urls are taken from the fetched
+  sitemaps, chosen at random
+
 ## Updating Chrome and Chromedriver versions
 
 You can find the latest _Chrome for Testing_ version manually by visiting
@@ -213,7 +225,7 @@ The steps to upgrade are:
 
 1. Run the command above (or manually visit site) to get latest stable _Chrome
    for Testing_.
-2. Update `pacakge.json` with the new version.
+2. Update `package.json` with the new version.
 3. Run `npm install` to download _Chrome for Testing_ and _Chromedriver_
    binaries corresponding to the new version from `package.json`. The binaries
    are downloaded to `chrome/` and `chromedriver/` respectively.
@@ -223,7 +235,7 @@ The steps to upgrade are:
 > [!TIP]
 >
 > macOS might come up with an error stating "chromedriver_mac_arm64" can't be
-> opened because Apple cannot check it for malicious software." This is fixed by
+> opened because Apple cannot check it for malicious software. This is fixed by
 > running `xattr -d com.apple.quarantine <path-to-executable-chromedriver>`
 
 ## Copyright notices
@@ -234,14 +246,14 @@ Crown copyright (c) 2024, Department of Internal Affairs on behalf of the New
 Zealand Government.
 
 This copyright, along with CWAC's GPL-3.0 license, does not extend to the
-third-party chromedriver binaries located in the `/drivers/` folder. Permission
-to re-use third party copyright material cannot be given by the Department of
-Internal Affairs.
+third-party chromedriver binaries located in the `chromedriver/` folder.
+Permission to re-use third party copyright material cannot be given by the
+Department of Internal Affairs.
 
 ### chromedriver binaries copyright and license
 
-CWAC includes chromedriver binaries at `/drivers/`. chromedriver licenses can be
-found in the `/drivers/` folder.
+CWAC includes chromedriver binaries at `chromedriver/`. chromedriver licenses
+can be found in the `chromedriver/` folder.
 
 ```plain
 // Copyright 2015 The Chromium Authors

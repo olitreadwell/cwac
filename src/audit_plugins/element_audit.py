@@ -6,14 +6,14 @@ can be customised in the config file using a CSS selector.
 """
 
 import logging
-from typing import Any
+from typing import Any, Unpack
 
 from bs4 import BeautifulSoup
 
 from config import Config
 
 # from src.audit_manager import AuditManager
-from src.audit_plugins.default_audit import DefaultAudit
+from src.audit_plugins.default_audit import AuditKwargs, DefaultAudit
 from src.browser import Browser
 
 # import selenium.common.exceptions as sel_exceptions
@@ -26,12 +26,12 @@ class ElementAudit(DefaultAudit):
 
   audit_type = 'ElementAudit'
 
-  def __init__(self, config: Config, browser: Browser, **kwargs: Any) -> None:
+  modifies_page = False
+
+  def __init__(self, config: Config, browser: Browser, **kwargs: Unpack[AuditKwargs]) -> None:
     """Init variables."""
     super().__init__(config, browser, **kwargs)
     self.target_element = self.config.audit_plugins['element_audit']['target_element_css_selector']
-    self.base_url = kwargs['site_data']['url']
-    self.viewport_size = kwargs['viewport_size']
 
   def run(self) -> list[dict[str, Any]] | bool:
     """Run an element detection on a specified URL.
@@ -41,18 +41,10 @@ class ElementAudit(DefaultAudit):
         bool: False if test fails, else a list of results
     """
     # Scrape the page source of the loaded browser
-    try:
-      page_source = self.browser.get_page_source()
-    except Exception as exc:
-      logger.error('Error getting page source: %s', exc)
-      return False
+    page_source = self.browser.driver.page_source
 
     # Try to parse using BeautifulSoup
-    try:
-      soup = BeautifulSoup(page_source, 'lxml')
-    except Exception as exc:
-      logger.error('Error parsing page source: %s', exc)
-      return False
+    soup = BeautifulSoup(page_source, 'lxml')
 
     # Find all elements of the target type (css selector)
     elements = soup.select(self.target_element)
@@ -68,9 +60,5 @@ class ElementAudit(DefaultAudit):
     # Get page information from DefaultAudit
     default_audit_row = self._default_audit_row
 
-    # Add default_test_row to all results
-    final_output = []
-    for found_element in found_elements:
-      final_output.append({**default_audit_row, **found_element})
-
-    return final_output
+    # Return each row with the defaults columns included
+    return [{**default_audit_row, **found_element} for found_element in found_elements]

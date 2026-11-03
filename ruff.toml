@@ -6,22 +6,31 @@ quote-style = 'single'
 
 [lint]
 ignore = [
-  'E501',    # don't check line length (mainly for comments)
   'D417',    # don't require documentation for every function parameter
+  'E501',    # don't check line length (mainly for comments)
+  'FIX002',  # todos are useful for tracking misc work
   'PLR2004'  # most numbers are not magic
 ]
-select = [
-  'E',    # pycodestyle
-  'W',    # pycodestyle
-  'F',    # Pyflakes
+extend-select = [
+  'A',
+  'B',    # flake8-bugbear
   'D',    # pydocstyle
-  'SIM',  # flake8-simplify
+  'E',    # pycodestyle
+  'EXE',
+  'F',    # Pyflakes
+  'FA',
+  'FIX',
+  'FLY',
   'I',    # isort
-  'S',    # flake8-bandit
+  'PERF', # performance
   'PLC',  # pylint conventions
   'PLE',  # pylint errors
   'PLR',  # pylint refactors
-  'PLW'   # pylint warnings
+  'PLW',  # pylint warnings
+  'S',    # flake8-bandit
+  'SIM',  # flake8-simplify
+  'UP',   # pyupgrade
+  'W'     # pycodestyle
 ]
 
 [lint.pydocstyle]

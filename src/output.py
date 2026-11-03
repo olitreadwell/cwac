@@ -5,13 +5,11 @@ import logging
 import os
 import threading
 import time
-from typing import Any
+from typing import Any, ClassVar
 
 import pandas as pd
 
 from config import Config
-
-# pylint: disable=too-many-locals
 
 logger = logging.getLogger('cwac')
 
@@ -21,16 +19,12 @@ class CSVWriter:
 
   # A dict of file paths that map to locks to
   # prevent multiple threads writing to the same file
-  file_locks: dict[str, threading.Lock] = {}
+  file_locks: ClassVar[dict[str, threading.Lock]] = {}
 
   # A lock to prevent multiple threads writing to file_locks dict
   lock_for_file_locks = threading.Lock()
 
-  def __init__(self) -> None:
-    """Init variables."""
-    self.rows: list[dict[Any, Any]] = []
-
-  def get_file_lock(self, path: str) -> threading.Lock:
+  def _get_file_lock(self, path: str) -> threading.Lock:
     """Get a lock for a file.
 
     Args:
@@ -44,64 +38,36 @@ class CSVWriter:
         CSVWriter.file_locks[path] = threading.Lock()
       return CSVWriter.file_locks[path]
 
-  def read_csv(self, path: str) -> list[dict[Any, Any]]:
-    """Read a CSV file as a list of dictionaries.
+  def append_rows(self, path: str, *rows: dict[Any, Any]) -> None:
+    """Append one or more rows to a CSV file.
 
     Args:
-        path (str): path to CSV file
-
-    Returns:
-        list[dict[Any, Any]]: list of dictionaries
+        path (str): path to file
+        *rows (dict[str, Any]): one or more rows of data
     """
-    with self.get_file_lock(path), open(path, 'r', encoding='utf-8-sig') as csvfile:
-      reader = csv.DictReader(csvfile)
-      rows = list(reader)
-    return rows
+    if not rows:
+      return
 
-  def add_row(self, row: dict[Any, Any]) -> None:
-    """Add a row to the CSV row buffer.
+    keys = None
+    write_header = False
 
-    Args:
-        row (dict[Any, Any]): A dictionary of row contents
-    """
-    self.rows.append(row)
+    with self._get_file_lock(path):
+      try:
+        # attempt to preserve the header order if the file already exists
+        with open(path, encoding='utf-8-sig', newline='') as csvfile:
+          keys = csv.DictReader(csvfile).fieldnames
+      except FileNotFoundError:
+        write_header = True
 
-  def add_rows(self, rows: list[dict[Any, Any]]) -> None:
-    """Add a list of rows to the CSV row buffer.
+      if keys is None:
+        keys = list(rows[0].keys())
+        write_header = True
 
-    Args:
-        rows (list[dict[Any, Any]]): list of rows of data
-    """
-    for row in rows:
-      self.rows.append(row)
-
-  def write_csv_file(self, path: str, overwrite: bool = False) -> bool:
-    """Write data to a CSV file.
-
-    Args:
-        path (str): path to write data
-        overwrite (bool): overwrite existing file
-
-    Returns:
-        bool: True if write successful, else False
-    """
-    if not self.rows:
-      return False
-
-    keys = self.rows[0].keys()
-
-    with self.get_file_lock(path):
-      file_exists = False if overwrite else os.path.exists(path)
-      file_mode = 'w' if overwrite else 'a'
-      with open(path, file_mode, encoding='utf-8-sig') as csvfile:
+      with open(path, 'a', encoding='utf-8-sig', newline='') as csvfile:
         writer = csv.DictWriter(csvfile, fieldnames=keys)
-        if not file_exists:
+        if write_header:
           writer.writeheader()
-        writer.writerows(self.rows)
-
-    self.rows = []
-
-    return True
+        writer.writerows(rows)
 
 
 def output_init_message(config: Config) -> None:
@@ -129,7 +95,7 @@ def output_init_message(config: Config) -> None:
   print_log('Viewport sizes:')
   for viewport_name, viewport_size in config.viewport_sizes.items():
     print_log(f'    {viewport_name}: {viewport_size}')
-  for _, audit_plugin in config.audit_plugins.items():
+  for audit_plugin in config.audit_plugins.values():
     print_log(f'Audit plugin: {audit_plugin["class_name"]}')
     for setting_key, setting_value in audit_plugin.items():
       if setting_key == audit_plugin['class_name']:
@@ -137,25 +103,18 @@ def output_init_message(config: Config) -> None:
       print_log(f'    {setting_key}: {setting_value}')
   print_log(f'Headless: {config.headless}')
   print_log(f'Thread count: {config.thread_count}')
-  print_log(f'Browser: {config.browser}')
   print_log(f'Filter to orgs: {config.filter_to_organisations}')
   print_log(f'Filter to urls: {config.filter_to_urls}')
   print_log(f'Max links per domain: {config.max_links_per_domain}')
   print_log(f'Chrome binary location: {config.chrome_binary_location}')
   print_log(f'Chrome driver location: {config.chrome_driver_location}')
   print_log(f'User agent: {config.user_agent}')
-  print_log(f'User agent product token: {config.user_agent_product_token}')
-  print_log(f'Follow robots.txt: {config.follow_robots_txt}')
   print_log(f'Script timeout: {config.script_timeout} seconds')
   print_log(f'Page load timeout: {config.page_load_timeout} seconds')
-  print_log(f'Delay between page_loads: {config.delay_between_page_loads} seconds')
-  print_log(f'Delay between viewports: {config.delay_between_viewports} seconds')
   print_log(f'Delay after page load: {config.delay_after_page_load} seconds')
-  print_log(f'Only allow HTTPS: {config.only_allow_https}')
   print_log(f'Perform header checks: {config.perform_header_check}')
   print_log(f'Shuffle base urls: {config.shuffle_base_urls}')
   print_log(f'Base urls visit path: {config.base_urls_visit_path}')
-  print_log(f'Recording unexpected response codes: {config.record_unexpected_response_codes}')
   print_log('*' * 80)
 
 
@@ -208,24 +167,24 @@ def print_progress_bar(
   elapsed = generate_time_str_from_mins((time.time() - start_time) / 60)
   time_est = generate_time_str_from_mins((total - iteration) / speed / 60)
   output = f'|{progress_bar}| {percent}% p:{iteration}/{total} v:{speed:.2f}p/s t:{elapsed}  t-:{time_est}'
-  print(output + '      ')
+
+  if os.environ.get('PRINT_PROGRESS', '') != 'false':
+    print(output + '      ')
 
   # Write progress data to CSV file
   csv_writer = CSVWriter()
-
-  output_row = {
-    'time': time.time(),
-    'iteration': iteration,
-    'total': total,
-    'speed': f'{speed:.2f}',
-    'percent': percent,
-    'elapsed': f'{elapsed}',
-    'remaining': f'{time_est}',
-  }
-
-  csv_writer.add_row(output_row)
-
-  csv_writer.write_csv_file(f'./results/{config.audit_name}/progress.csv')
+  csv_writer.append_rows(
+    f'./results/{config.audit_name}/progress.csv',
+    {
+      'time': time.time(),
+      'iteration': iteration,
+      'total': total,
+      'speed': f'{speed:.2f}',
+      'percent': percent,
+      'elapsed': f'{elapsed}',
+      'remaining': f'{time_est}',
+    },
+  )
 
   # Print New Line on Complete
   if iteration == total:
@@ -233,83 +192,140 @@ def print_progress_bar(
 
 
 def generate_axe_core_template_aware_results(audit_name: str) -> None:
-  """Combine repeated axe-core issues.
+  """Derive new CSV from axe-core results with added frequency stats.
 
-  Used for detecting template-level errors.
+  Process axe-core audit results, attempting to identify issues with a common
+  cause by searching for issues with a similar HTML structure repeated across
+  multiple pages. These issues are extracted to a new CSV file for easier
+  analysis.
+
+  Issues are grouped by the following fields:
+    - base_url: The organization/domain being audited
+    - id: The axe-core rule ID (e.g., 'color-contrast', 'image-alt')
+    - html: The opening HTML code of the problem element (first 100 chars)
+    - viewport_size: The screen size tested (mobile vs desktop issues may differ)
+
+  Extra fields are added to each group:
+    - num_issues: No. of issues with same `id` and similar HTML structure
+    - num_pages: No. of distinct URLs with the same `id` (axe-core rule violation name)
+
+  Each group becomes a single row in the output CSV. The output is written to
+  `axe_core_audit_template_aware.csv` for easier analysis.
 
   Args:
-      audit_name (str): The name of the audit that was just run
+      audit_name (str): Name of axe-core audit. `results/{audit_name}/axe_core_audit.csv` must exist.
+
+  Returns:
+      None. Writes results to results/{audit_name}/axe_core_audit_template_aware.csv
   """
-
-  def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) -> pd.DataFrame:
-    """Template aware algorithm - finds template-level issues.
-
-    Uses pandas to group/aggregate axe-core data to show template
-    level issues within websites.
-
-    Args:
-        input_df (pd.DataFrame): The input dataframe.
-        groupby_cols (list[str]): The columns to group by.
-
-    Returns:
-        pd.DataFrame: The grouped and aggregated dataframe.
-    """
-    # Collect all rows where count is 0
-    zero_count_rows = input_df[input_df['num_issues'] == 0]
-
-    # Remove the zero count rows from the input_df
-    no_zero_count_df = input_df[input_df['num_issues'] != 0]
-
-    # Group the data
-    grouped_df = no_zero_count_df.groupby(groupby_cols)
-
-    # Generate the aggregation dictionary
-    agg_dict = {'num_issues': 'sum'}
-
-    # Add in 'first' for all other columns
-    for col in input_df.columns:
-      if col not in agg_dict and col not in groupby_cols:
-        agg_dict[col] = 'first'
-
-    # Aggregate the data
-    agg_df = grouped_df.agg(agg_dict)
-
-    # Reset the index
-    agg_df = agg_df.reset_index()
-
-    # Concatenate the zero count rows with the agg data
-    agg_df = pd.concat([agg_df, zero_count_rows])
-
-    # Generate column for the number of pages impacted by an issue
-    agg_df['num_pages'] = agg_df.apply(lambda row: agg_df[agg_df['issue_id'] == row.issue_id]['url'].nunique(), axis=1)
-    agg_df.reset_index()
-
-    return agg_df
-
   results_path = f'./results/{audit_name}'
 
-  # Read the CSV file into a DataFrame
+  # Read the raw axe-core audit results into a DataFrame
   data_frame = pd.read_csv(f'{results_path}/axe_core_audit.csv')
 
-  # Get and update the column order for the page count column
+  # The generated CSV will have the same columns as the input, plus 'num_pages'
+  # (placed before 'num_issues') to indicate how many distinct pages share the
+  # same issue.
   processed_column_order = list(data_frame.columns)
   processed_column_order.insert(processed_column_order.index('num_issues'), 'num_pages')
 
-  # Group and aggregate the data
+  # Aggregate issues at the template level, combining duplicate issues found
+  # on different pages but with identical HTML element structure
   data_frame = template_aware_algorithm(
     input_df=data_frame,
     groupby_cols=['base_url', 'id', 'html', 'viewport_size'],
   )
 
+  # We want to present the most repeated (and therefore likely template-wide)
+  # issues first, as these are the most critical to address.
   data_frame = data_frame.sort_values(
-    by=['num_issues', 'organisation', 'base_url', 'url'],
-    ascending=[False, True, True, True],
+    by=['num_issues', 'base_url', 'url'],
+    ascending=[False, True, True],
   )
 
-  # Write the data to CSV file with original column order
+  # Write the aggregated results to CSV file, preserving the prepared column order
   data_frame.to_csv(
     f'{results_path}/axe_core_audit_template_aware.csv',
     index=False,
     columns=list(processed_column_order),
     encoding='utf-8-sig',
   )
+
+
+def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) -> pd.DataFrame:
+  """Update the given DataFrame with metrics columns.
+
+  The metrics columns are:
+
+  1. `num_issues` (WARNING: this function changes column meaning)
+    - This column already exists in `input_df`. This function re-uses the column
+    but now the value is the count of all issues with identical values for all
+    columns in `groupby_cols`. For example, if the groupby_cols are:
+      ['base_url', 'id', 'html', 'viewport_size']
+    then `num_issues` will be the count of all rows in `input_df` that have the
+    same values for those four columns.
+  2. `num_pages`
+    - A new column added by this function.
+    - Its value is the count of distinct URLs which have the same `issue_id` as the current row.
+
+  Args:
+      input_df (pd.DataFrame): Raw axe-core audit results.
+        Expected columns: base_url, id, html, viewport_size, num_issues,
+        issue_id, url, etc.
+      groupby_cols (list[str]): Rows in `input_df` with the same values for
+        these column names are put in the same group.
+
+  Returns:
+      pd.DataFrame: Includes all columns from `input_df` as well as the metrics columns:
+        1. -num_issues (WARNING: this function changes column meaning)
+          - Count of all issues with identical values for all columns in `groupby_cols`
+        2. num_pages
+          - Count of distinct URLs which have the same `issue_id` as the current row.
+  """
+  # Select pages with no issues. These are preserved unchanged.
+  zero_count_rows = input_df[input_df['num_issues'] == 0]
+
+  # Select only the rows where num_issues is not zero, as these are the ones we
+  # want to aggregate
+  no_zero_count_df = input_df[input_df['num_issues'] != 0]
+
+  # Create groups within the DataFrame based on the values in the specified
+  # columns.
+  grouped_df = no_zero_count_df.groupby(groupby_cols)
+
+  # Now we use aggregation to reduce each group to a single row.  We define an
+  # aggregation (as a Dict) to tell Pandas how to reduce each column.  For the
+  # num_issues column, we sum the counts. For all other columns, we take the
+  # first occurrence in each group.
+  agg_dict = {'num_issues': 'sum'}
+  for col in input_df.columns:
+    if col not in agg_dict and col not in groupby_cols:
+      agg_dict[col] = 'first'
+  # agg_dict example: {'num_issues': 'sum', 'base_url': 'first', 'id': 'first', ...}
+
+  # Apply aggregation to reduce each group to a single row
+  agg_df = grouped_df.agg(agg_dict)
+
+  # Resetting the index of the DataFrame to ensure that the groupby columns are
+  # treated as regular columns rather than index levels. This is important for
+  # further processing and for writing the DataFrame to CSV.
+  agg_df = agg_df.reset_index()
+
+  # Add back in the rows with no issues which are passed through unchanged.
+  agg_df = pd.concat([agg_df, zero_count_rows])
+
+  # Update the whole `num_pages` column in the DataFrame. For each row, the
+  # right-hand side calculates:
+  #
+  # 1. Find all rows with the same issue_id as the current row.
+  # 2. Count how many distinct url values are in that set.
+  # 3. Put that count into num_pages for that row.
+  #
+  # So the effect is: every row gets a page-count showing how widely that issue
+  # appears across different pages.
+  #
+  # Rows without an issue_id (i.e. pages with no issues) don't match any rows,
+  # so they get a count of 0.
+  agg_df['num_pages'] = agg_df.groupby('issue_id')['url'].transform('nunique').fillna(0).astype(int)
+
+  return agg_df

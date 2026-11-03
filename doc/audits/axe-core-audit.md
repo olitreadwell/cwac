@@ -70,10 +70,8 @@ If the axe-core audit was enabled for a scan, its results will be in 2 files in
 the results:
 
 1. `axe_core_audit.csv` — contains all violations found during the scan.
-2. `axe_core_audit_template_aware.csv` — a filtered version where violations
-   appearing on multiple pages due to shared template/component code are
-   de-duplicated. This file helps identify systemic issues that need to be fixed
-   in templates rather than on individual pages.
+2. `axe_core_audit_template_aware.csv` — documented in
+   [axe-core audit template aware results](./axe-core-audit-computed-metrics.md)
 
 ### Report columns
 
@@ -102,9 +100,15 @@ The columns in `axe_core_audit.csv` are:
 - `audit_type`
   - The plugin that produced the row (`AxeCoreAudit`).
 - `issue_id`
-  - A hash uniquely identifying this issue instance (based on base URL, rule ID,
-    element HTML, and viewport). Useful for tracking the same issue across
-    multiple scans.
+  - A hash uniquely identifying this issue instance. Based on:
+
+    1. Base URL (`base_url` column in this CSV)
+    2. Axe-core Rule ID (`id` column in this CSV e.g. `color-contrast`,
+       `link-name`)
+    3. Element HTML (`html` column in this CSV)
+    4. Viewport dimensions (`viewport_size` column in this CSV).
+
+    Useful for tracking the same issue across multiple scans.
 - `description`
   - A human-readable summary of the rule being tested.
 - `target`
@@ -162,7 +166,7 @@ The fix depends on the specific rule. The
 [axe-core rule descriptions](https://github.com/dequelabs/axe-core/blob/develop/doc/rule-descriptions.md)
 links from the `id` value in the result (e.g. `aria-hidden-focus` to an
 informative page giving context on the issue e.g.
-[aria-hidden-focus](https://dequeuniversity.com/rules/axe/4.12/aria-hidden-focus?application=RuleDescription).
+[aria-hidden-focus](https://dequeuniversity.com/rules/axe/4.13/aria-hidden-focus?application=RuleDescription).
 This should provide enough context for a developer (or other technical person)
 to understand the issue and devise a fix suitable for the site in question.
 
