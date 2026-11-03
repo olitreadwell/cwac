@@ -9,6 +9,16 @@ from typing import Any, TypedDict, Unpack
 from config import Config, SiteData
 from src.browser import Browser
 
+# Audit classes for use with AuditManager
+# Audit classes are registered with register_audit
+# Audit classes MUST implement:
+# def __init__(self, browser: Browser, **kwargs) -> None
+#   - accepts a browser, and kwargs
+# run(self) -> list[dict[str, Any]] | bool
+#   - runs the actual audit
+#   - if audit is successful, returns a list of dictionaries
+#       which form CSV data rows
+#   - if the audit fails, returns False
 
 class AuditKwargs(TypedDict):
   """Arguments that get passed to all audits."""

@@ -166,7 +166,7 @@ The fix depends on the specific rule. The
 [axe-core rule descriptions](https://github.com/dequelabs/axe-core/blob/develop/doc/rule-descriptions.md)
 links from the `id` value in the result (e.g. `aria-hidden-focus` to an
 informative page giving context on the issue e.g.
-[aria-hidden-focus](https://dequeuniversity.com/rules/axe/4.12/aria-hidden-focus?application=RuleDescription).
+[aria-hidden-focus](https://dequeuniversity.com/rules/axe/4.13/aria-hidden-focus?application=RuleDescription).
 This should provide enough context for a developer (or other technical person)
 to understand the issue and devise a fix suitable for the site in question.
 

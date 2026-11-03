@@ -170,6 +170,8 @@ class CrawlablePageValidator:
     by https://example.com/abc rather than https://example.com/
 
     Args:
+        current_base_url (str): The base URL currently being scanned
+        current_url (str): The URL to check for intersections
         current_base_url (src.urls.NormalizedUrl): The base url currently being crawled
         current_url (src.urls.NormalizedUrl): The url to check
 

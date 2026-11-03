@@ -169,6 +169,7 @@ class Config:
     filter_to_urls.
 
     Args:
+        row (SiteData): an audit subject parsed from a CSV
         columns (dict[str, str]): a raw row parsed from a CSV
 
     Returns:
@@ -332,6 +333,24 @@ class Config:
         name (str): the name of the attribute (in config.json)
     """
     return self.config[name]
+
+  def read_config(self) -> Any:
+    """Read the config.json file and return it.
+
+    Returns:
+        dict (Any): a dict of the contents of config_default.json
+    """
+    # First arg passed to CWAC is the config filename
+    if len(sys.argv) > 1:
+      config_filename = sys.argv[1]
+      # Only accept alphanumeric, underscores, dots, and hyphens
+      if not re.match(r'^[a-zA-Z0-9_.-]+$', config_filename):
+        raise ValueError('config_filename must be alphanumeric, underscores, and hyphens')
+    else:
+      config_filename = 'config_default.json'
+    with open('./config/' + config_filename, encoding='utf-8-sig') as file:
+      # Write the config file to the results folder
+      return json.load(file)
 
   def is_path_subdir(self, path: str, parent_path: str) -> bool:
     """Check if a path is a subdirectory of another path.

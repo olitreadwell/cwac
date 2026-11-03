@@ -33,7 +33,7 @@ websites. The primary standard is the
 [NZ Government Web Accessibility Standard](https://www.digital.govt.nz/standards-and-guidance/nz-government-web-standards/web-accessibility-standard-1-2/),
 which includes
 [Web Content Accessibility Guidelines (WCAG) 2.2](https://www.w3.org/TR/WCAG22/)
-Level AA conformance. CWAC enables the partial fulfillment of
+Level AA conformance. CWAC enables the partial fulfilment of
 [Article 9 of the United Nations Convention on the Rights of Persons with Disabilities (CRPD)](https://www.un.org/development/desa/disabilities/convention-on-the-rights-of-persons-with-disabilities/article-9-accessibility.html).
 
 Provided a list of URLs to visit, CWAC will check each page for
@@ -235,7 +235,7 @@ The steps to upgrade are:
 > [!TIP]
 >
 > macOS might come up with an error stating "chromedriver_mac_arm64" can't be
-> opened because Apple cannot check it for malicious software." This is fixed by
+> opened because Apple cannot check it for malicious software. This is fixed by
 > running `xattr -d com.apple.quarantine <path-to-executable-chromedriver>`
 
 ## Copyright notices

@@ -74,7 +74,7 @@ def url_filter_http(_config: Config, url: urllib.parse.ParseResult) -> bool:
       url (urllib.parse.ParseResult): A URL to filter
 
   Returns:
-      bool: True of URL is valid, else False
+      bool: True if URL is valid, else False
   """
   return url.scheme in ('http', 'https')
 DISALLOWED_FILE_TYPES = (
