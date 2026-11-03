@@ -17,6 +17,66 @@ from config import Config
 
 logger = logging.getLogger('cwac')
 
+
+def url_filter_whitelist(config: Config, url: urllib.parse.ParseResult) -> bool:
+  """Filter out URLs not in whitelist.
+
+  Args:
+      config (Config): The configuration to use
+      url (urllib.parse.ParseResult): A URL to filter
+
+  Returns:
+      bool: True if URL is valid, else False
+  """
+  netloc_without_www = url.netloc.lower().removeprefix('www.')
+
+  netloc_with_www = url.netloc.lower()
+
+  if not url.netloc.startswith('www.'):
+    netloc_with_www = 'www.' + url.netloc.lower()
+
+  return netloc_without_www in config.url_lookup or netloc_with_www in config.url_lookup
+
+
+def url_filter_https_only(config: Config, url: urllib.parse.ParseResult) -> bool:
+  """Filter out non-https URLs if config.only_allow_https is True.
+
+  Args:
+      config (Config): The configuration to use
+      url (urllib.parse.ParseResult): A URL to filter
+
+  Returns:
+      bool: True if URL is valid, else False
+  """
+  if config.only_allow_https:
+    return url.scheme == 'https'
+  return True
+
+
+def url_filter_fragment(_config: Config, url: urllib.parse.ParseResult) -> bool:
+  """Filter out same-page URLs.
+
+  Args:
+      _config (Config): The configuration to use
+      url (urllib.parse.ParseResult): A URL to filter
+
+  Returns:
+      bool: True if URL is valid, else False
+  """
+  return url.fragment == ''
+
+
+def url_filter_http(_config: Config, url: urllib.parse.ParseResult) -> bool:
+  """Filter out non-http/https URLs.
+
+  Args:
+      _config (Config): The configuration to use
+      url (urllib.parse.ParseResult): A URL to filter
+
+  Returns:
+      bool: True of URL is valid, else False
+  """
+  return url.scheme in ('http', 'https')
 DISALLOWED_FILE_TYPES = (
   '.xml',
   '.gif',
