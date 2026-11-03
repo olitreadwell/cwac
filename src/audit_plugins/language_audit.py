@@ -172,11 +172,27 @@ class LanguageAudit(DefaultAudit):
       with open(path_2, encoding='utf-8-sig') as file:
         readability_js += file.read()
 
+      # Remove non-English content before Readability runs. Readability often
+      # flattens wrapper elements, which drops a `lang` attribute set on an
+      # ancestor. Filtering the cloned document first keeps that language
+      # inheritance intact, so Maori or other non-English text is excluded from
+      # the English readability test (issue #212). The rule matches
+      # `is_english_lang`: keep 'en', 'en-*', or no lang; drop the rest.
+      filter_js = """
+          documentCopy.querySelectorAll('[lang]').forEach(function (el) {
+            var lang = (el.getAttribute('lang') || '').trim().toLowerCase();
+            if (lang && lang !== 'en' && lang.indexOf('en-') !== 0) {
+              el.remove();
+            }
+          });
+          """
+
       # JavaScript to execute Readability
       LanguageAudit.readability_js = f"""
         {readability_js}
         (() => {{
           const documentCopy = document.cloneNode(true);
+          {filter_js}
           if (isProbablyReaderable(documentCopy) === false) return false;
           const reader = new Readability(documentCopy);
           const article = reader.parse();
