@@ -15,10 +15,10 @@ Disclaimer:
 """
 
 import logging
-from typing import Any
+from typing import Any, Unpack
 
 from config import Config
-from src.audit_plugins.default_audit import DefaultAudit
+from src.audit_plugins.default_audit import AuditKwargs, DefaultAudit
 from src.browser import Browser
 
 logger = logging.getLogger('cwac')
@@ -29,7 +29,9 @@ class ReflowAudit(DefaultAudit):
 
   audit_type = 'ReflowAudit'
 
-  def __init__(self, config: Config, browser: Browser, **kwargs: Any) -> None:
+  modifies_page = False
+
+  def __init__(self, config: Config, browser: Browser, **kwargs: Unpack[AuditKwargs]) -> None:
     """Init variables."""
     super().__init__(config, browser, **kwargs)
 
@@ -67,12 +69,10 @@ class ReflowAudit(DefaultAudit):
       return False
 
     # Determine if there is a horizontal overflow
-    try:
-      self.browser.driver.execute_script('window.scrollTo(100, 0);')
-      overflow_amount = self.browser.driver.execute_script('return window.scrollX;')
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception('Failed to scroll to 100px %s', self.url)
-      return False
+    overflow_amount = self.browser.evaluate("""
+      const scrollingElement = document.scrollingElement ?? document.documentElement;
+      scrollingElement.scrollWidth - scrollingElement.clientWidth;
+    """)
 
     # Run a ScreenshotAudit if the page overflows
     if self.config.audit_plugins['reflow_audit']['screenshot_failures'] and overflow_amount > 0:
@@ -82,7 +82,6 @@ class ReflowAudit(DefaultAudit):
       screenshot_audit = ScreenshotAudit(
         config=self.config,
         browser=self.browser,
-        url=self.url,
         site_data=self.site_data,
         audit_id=self.audit_id,
         page_id=self.page_id,
@@ -93,7 +92,7 @@ class ReflowAudit(DefaultAudit):
       {
         **self._default_audit_row,
         'audit_type': ReflowAudit.audit_type,
-        'url': self.url,
+        'url': self.browser.requested_url,
         'overflows': overflow_amount > 0,
         'num_issues': 1 if overflow_amount > 0 else 0,
         'overflow_amount_px': overflow_amount,

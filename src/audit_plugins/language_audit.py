@@ -15,7 +15,6 @@ import nltk  # type: ignore
 from bs4 import BeautifulSoup
 from nltk.corpus import cmudict  # type: ignore
 from nltk.sentiment import SentimentIntensityAnalyzer  # type: ignore
-from selenium.common import WebDriverException
 
 from src.audit_plugins.default_audit import DefaultAudit
 
@@ -30,7 +29,7 @@ nltk.data.path.append(nltk_dir)
 # Map each word to the number of syllables in its first pronunciation; we only
 # need the counts, which take a fraction of the memory of the full dictionary
 syllables_by_word: dict[str, int] = {}
-for _word, _pronunciation in cmudict.entries():
+for _word, _pronunciation in cast(list[tuple[str, list[str]]], cmudict.entries()):
   if _word not in syllables_by_word:
     syllables_by_word[_word] = sum(1 for phoneme in _pronunciation if phoneme[-1].isdigit())
 
@@ -41,6 +40,8 @@ class LanguageAudit(DefaultAudit):
   """Language analysis for web pages."""
 
   audit_type = 'LanguageAudit'
+
+  modifies_page = False
 
   # Stores Readability.js and friends to prevent re-reading the files
   readability_js = ''
@@ -55,7 +56,9 @@ class LanguageAudit(DefaultAudit):
     lang = self.__get_document_lang()
 
     if lang != 'en' and not lang.startswith('en-'):
-      logger.warning('Test can only be run on English pages but lang for this page is %s: %s', lang, self.url)
+      logger.info(
+        'Test can only be run on English pages but lang for this page is %s: %s', lang, self.browser.requested_url
+      )
       return True
 
     # Scrape main content
@@ -69,7 +72,7 @@ class LanguageAudit(DefaultAudit):
 
     # Check if test is not applicable (i.e. not enough text)
     if self.is_test_not_applicable(sentences, words):
-      logger.warning('Test is not applicable: %s', self.url)
+      logger.info('Test is not applicable: %s', self.browser.requested_url)
       return True
 
     # Calculate Flesch-Kincaid Grade Level
@@ -172,12 +175,14 @@ class LanguageAudit(DefaultAudit):
       # JavaScript to execute Readability
       LanguageAudit.readability_js = f"""
         {readability_js}
-        const documentCopy = document.cloneNode(true);
-        if (isProbablyReaderable(documentCopy) === false) return false;
-        const reader = new Readability(documentCopy);
-        const article = reader.parse();
-        if (article === null) return false;
-        return [article.title, article.content];
+        (() => {{
+          const documentCopy = document.cloneNode(true);
+          if (isProbablyReaderable(documentCopy) === false) return false;
+          const reader = new Readability(documentCopy);
+          const article = reader.parse();
+          if (article === null) return false;
+          return [article.title, article.content];
+        }})();
       """
 
   def scrape_main_content(self) -> str:
@@ -190,17 +195,12 @@ class LanguageAudit(DefaultAudit):
     """
     self._load_readability()
 
-    # Execute JavaScript
-    try:
-      content = self.browser.driver.execute_script(LanguageAudit.readability_js)
-    except Exception:  # pylint: disable=broad-exception-caught
-      logger.exception('WebDriver exception for Readability')
-      return ''
+    content = self.browser.evaluate(LanguageAudit.readability_js)
 
     if content is False:
-      logger.warning(
+      logger.info(
         'Readability rejected the page. %s',
-        self.url,
+        self.browser.requested_url,
       )
       return ''
 
@@ -224,11 +224,7 @@ class LanguageAudit(DefaultAudit):
     return str(flat_output)
 
   def __get_document_lang(self) -> str:
-    try:
-      return cast(str, self.browser.driver.execute_script('return document.documentElement.lang')).lower()
-    except WebDriverException:
-      logger.exception('Could not get document element language')
-      return ''
+    return cast(str, self.browser.evaluate('document.documentElement.lang')).lower()
 
   def count_syllables(self, word: str) -> int:
     """Count num of syllables in a word.

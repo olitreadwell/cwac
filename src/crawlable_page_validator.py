@@ -1,16 +1,13 @@
 """Validator for crawlable pages."""
 
 import logging
-import posixpath
-import re
 import urllib
 import urllib.parse
 import urllib.robotparser
 
-import requests
-
 import src.filters
 import src.output
+import src.urls
 from config import Config, SiteData
 from src.analytics import Analytics
 
@@ -26,14 +23,18 @@ class CrawlablePageValidator:
     self.analytics = analytics
     self.url_filter = src.filters.URLFilter(config)
 
-  def validate(self, site_data: SiteData, base_url: str, parent_url: str, url: str) -> str | None:
+  def validate(
+    self,
+    site_data: SiteData,
+    parent_url: str,
+    url: src.urls.NormalizedUrl,
+  ) -> src.urls.NormalizedUrl | None:
     """Validates that pages are crawlable.
 
     A page is considered crawlable if all of the following conditions are met:
 
     1. It passes URL filters
     2. Has not been scanned before
-    3. Is allowed by robots.txt
 
     If `config.perform_header_check` is enabled, then the HTTP headers are fetched
     and validated.
@@ -41,11 +42,8 @@ class CrawlablePageValidator:
     If a redirect is encountered during header validation, the new (final) URL
     will be re-checked.
     """
-    match self._clean_and_fast_validate_url(base_url, url):
-      case None:
-        return None
-      case clean_url:
-        url = clean_url
+    if not self._fast_validate_url(site_data['url'], url):
+      return None
 
     # If header checks are disabled then we are done so just return the
     # validated URL.
@@ -60,62 +58,53 @@ class CrawlablePageValidator:
     )
 
     # Now that we have the headers, verify that they are acceptable
-    if not self._are_url_headers_acceptable(base_url=base_url, parent_url=parent_url, url_data=url_data):
+    if not self._are_url_headers_acceptable(base_url=site_data['url'], parent_url=parent_url, url_data=url_data):
+      return None
+
+    # The final (post redirects) URL comes from the response, so it needs normalizing
+    try:
+      final_url = src.urls.normalize_url(url_data['final_url'])
+    except ValueError:
+      logger.info('URL filtered out due to redirecting to an invalid url %s', url_data['final_url'])
       return None
 
     # If the URL has not changed after fetching headers (i.e. no redirects) then
     # we consider it valid and can return it as is.
-    if url == url_data['final_url']:
+    if url == final_url:
       return url
 
     # Otherwise we need to re-validate the new (post redirects) URL
-    match self._clean_and_fast_validate_url(base_url, url_data['final_url']):
-      case None:
-        return None
-      case new_clean_url:
-        url = new_clean_url
+    return final_url if self._fast_validate_url(site_data['url'], final_url) else None
 
-    return url
+  def _fast_validate_url(self, base_url: src.urls.NormalizedUrl, url: src.urls.NormalizedUrl) -> bool:
+    """Run all the validations that happen before fetching headers.
 
-  def _clean_and_fast_validate_url(self, base_url: str, url: str) -> str | None:
-    """Cleans the URL and then runs all the validations that happen before fetching headers.
-
-    These are cheap checks, except for the robots.txt check which makes an HTTP
-    request the first time a domain is checked (after which it is cached).
-
-    Return the cleaned version of the URL if it is eligible to be crawled, otherwise None.
+    Returns:
+        bool: True if the URL is eligible to be crawled, else False
     """
-    try:
-      clean_url = self._url_sanitise(url)
-    except ValueError:
-      return None
+    if not self.url_filter.run_url_filters(url):
+      return False
 
-    if not self.url_filter.run_url_filters(clean_url):
-      return None
-
-    # Confines to URLs that are within the scope of the base_url
-    # and prevents URLs that intersect with another base_url
-    # (useful for multiple websites on the same domain)
-    if not self._url_filter_prevent_intersections(base_url, clean_url):
-      return None
+    if not self._owns_url(base_url, url):
+      return False
 
     # Check if URL has been scanned before
-    if self.analytics.is_url_in_pages_scanned(base_url, clean_url):
-      logger.info('URL has been scanned before %s for %s', clean_url, base_url)
-      return None
+    if self.analytics.is_url_in_pages_scanned(base_url, url):
+      logger.info('URL has been scanned before %s for %s', url, base_url)
+      return False
 
-    # Check if URL is allowed by robots.txt
-    if not self._is_url_allowed_by_robots_txt(clean_url):
-      logger.info('URL disallowed by robots.txt %s', clean_url)
-      return None
+    return True
 
-    return clean_url
-
-  def _are_url_headers_acceptable(self, base_url: str, parent_url: str, url_data: src.filters.UrlData) -> bool:
+  def _are_url_headers_acceptable(
+    self,
+    base_url: src.urls.NormalizedUrl,
+    parent_url: str,
+    url_data: src.filters.UrlData,
+  ) -> bool:
     """Check if the URL has acceptable headers.
 
     Args:
-        base_url (str): base URL - homepage of website specified
+        base_url (src.urls.NormalizedUrl): base URL - homepage of website specified
         parent_url (str): parent URL of url
         url_data (src.filters.UrlData): url data
 
@@ -129,250 +118,90 @@ class CrawlablePageValidator:
         url_data['final_url'],
         url_data['status_code'],
       )
-      if self.config.record_unexpected_response_codes:
-        csv_writer = src.output.CSVWriter()
-        csv_writer.append_rows(
-          f'./results/{self.config.audit_name}/unexpected_response_codes.csv',
-          {
-            'base_url': base_url,
-            'parent_url': parent_url,
-            'url': url_data['final_url'],
-            'status_code': url_data['status_code'],
-          },
-        )
+      csv_writer = src.output.CSVWriter()
+      csv_writer.append_rows(
+        f'./results/{self.config.audit_name}/unexpected_response_codes.csv',
+        {
+          'base_url': base_url,
+          'parent_url': parent_url,
+          'url': url_data['final_url'],
+          'status_code': url_data['status_code'],
+        },
+      )
 
       return False
     return src.filters.url_filter_by_header_content_type(url_data['final_url'], url_data['headers'])
 
-  def _fetch_robots_txt(self, robots_txt_url: str) -> str:
-    """Fetches a robots.txt file from a domain.
+  def _split_scope(self, url: src.urls.NormalizedUrl) -> tuple[tuple[str, str], list[str]]:
+    """Split a url into its origin and its path segments, ignoring leading and trailing slashes."""
+    parts = urllib.parse.urlsplit(url)
 
-    This is a custom implementation as the standard library's
-    urllib.robotparser.RobotFileParser does not appear to handle
-    large file problems, non-UTF-8 chars, or Content-Type checks.
+    path = parts.path.removeprefix('/').removesuffix('/')
 
-    Args:
-        robots_txt_url (str): URL to fetch robots.txt from
+    return (parts.scheme, parts.netloc), path.split('/') if path else []
 
-    Returns:
-        str: robots.txt file
+  def _split_base_url_scope(self, base_url: src.urls.NormalizedUrl) -> tuple[tuple[str, str], list[str]]:
+    """Split a base url into its origin and its path segments, treating a url for a file as its directory."""
+    origin, segments = self._split_scope(base_url)
 
-    Performance:
-        At least 1 HTTP request; redirects may cause additional requests.
+    # base urls that point at a file (e.g. https://example.com/a/index.html) are
+    # treated as being for the directory containing that file
+    if segments and '.' in segments[-1] and not urllib.parse.urlsplit(base_url).path.endswith('/'):
+      segments = segments[:-1]
+
+    return origin, segments
+
+  def _is_url_within_base_url(self, base_url: src.urls.NormalizedUrl, url: src.urls.NormalizedUrl) -> bool:
+    """Return True if the url has the same origin as the base url, and its path starts with the base url's path.
+
+    Paths are compared by segment.
     """
-    # Fetch the robots.txt file
-    try:
-      logger.info('Fetching robots.txt %s', robots_txt_url)
-      response = requests.get(robots_txt_url, headers={'User-Agent': self.config.user_agent}, timeout=10)
-      response.raise_for_status()
+    base_origin, base_segments = self._split_base_url_scope(base_url)
+    url_origin, url_segments = self._split_scope(url)
 
-      # Check Content-Type is text/plain (in a safe way)
-      is_content_type_set = 'Content-Type' in response.headers
-      if is_content_type_set and not re.search('^text/plain(?:;|$)', response.headers['Content-Type'], re.IGNORECASE):
-        raise ValueError(f'robots.txt has invalid Content-Type {robots_txt_url} {response.headers["Content-Type"]}')
-    except requests.exceptions.RequestException:
-      logger.error('Failed to fetch robots.txt %s', robots_txt_url)
-      raise
+    return base_origin == url_origin and url_segments[: len(base_segments)] == base_segments
 
-    logger.info('Fetched robots.txt %s', robots_txt_url)
+  def _owns_url(self, current_base_url: src.urls.NormalizedUrl, current_url: src.urls.NormalizedUrl) -> bool:
+    """Check if the base url is the most appropriate owner of the current url.
 
-    robots_txt_content = response.text
-
-    # If the response is > 500 KB
-    if len(robots_txt_content) > 1024 * 500:
-      logger.warning('robots.txt file is too large (>500 KB) on %s', robots_txt_url)
-      raise ValueError(f'robots.txt file is too large (>500 KB) on {robots_txt_url}')
-
-    # Remove any non-UTF-8 characters
-    file = robots_txt_content.encode('utf-8', errors='ignore').decode('utf-8')
-
-    return file
-
-  def _is_url_allowed_by_robots_txt(self, url: str) -> bool:
-    """Checks if a URL's robots.txt allows CWAC.
-
-    Args:
-        url (str): URL to check
-
-    Returns:
-        bool: True if URL is allowed by robots.txt, else False (True if config disables robots.txt checks)
-
-    Performance:
-        1 HTTP request if robots.txt not yet cached for the domain.
-    """
-    if not self.config.follow_robots_txt:
-      return True
-
-    # Get the protocol/domain of the URL
-    protocol, domain = urllib.parse.urlparse(url)[:2]
-
-    # If the domain is in config.robots_txt_cache, use that
-    if domain in self.config.robots_txt_cache:
-      robot_parser = self.config.robots_txt_cache[domain]
-      logger.info('Using cached robots.txt for %s', domain)
-      result = robot_parser.can_fetch(self.config.user_agent_product_token, url)
-      logger.info('robots.txt result for %s was %s', url, 'allow' if result else 'disallow')
-      return result
-
-    # Use urllib.robotparser to parse the robots.txt file
-    robot_parser = urllib.robotparser.RobotFileParser()
-
-    # Fetch the robots.txt file
-    try:
-      robots_txt = self._fetch_robots_txt(f'{protocol}://{domain}/robots.txt')
-      robot_parser.parse(robots_txt.splitlines())
-    except (requests.exceptions.RequestException, ValueError):
-      robot_parser.parse('')
-      self.config.robots_txt_cache[domain] = robot_parser
-      logger.exception('Failed to fetch or parse robots.txt - default to allow! %s', domain)
-      return True
-
-    # Cache the robotparser object
-    self.config.robots_txt_cache[domain] = robot_parser
-
-    # Check if the URL is allowed by robots.txt
-    result = robot_parser.can_fetch(self.config.user_agent_product_token, url)
-
-    # Log the outcome
-    logger.info('robots.txt result for %s was %s', url, 'allow' if result else 'disallow')
-
-    return result
-
-  def _url_filter_prevent_intersections(self, current_base_url: str, current_url: str) -> bool:
-    """Filter out when a URL intersects with another base_url.
-
-    Prevents, for instance, https://example.com/ from being scanned
-    when https://example.com/abc/ is being scanned and
-    prevents https://example.com/abc/ from being scanned when
-    https://example.com/ is being scanned
+    A url is owned by a base url if it is within that base url and not also within
+    another base url with more path segments, e.g. if both https://example.com/ and
+    https://example.com/abc are base urls, then https://example.com/abc/def is owned
+    by https://example.com/abc rather than https://example.com/
 
     Args:
         current_base_url (str): The base URL currently being scanned
         current_url (str): The URL to check for intersections
+        current_base_url (src.urls.NormalizedUrl): The base url currently being crawled
+        current_url (src.urls.NormalizedUrl): The url to check
 
     Returns:
-        bool: True if URL is valid, else False
+        bool: True if the current base url owns the url, else False
     """
-    # Prepares the base_url and url for the matching algorithm
-    current_base_url = self._normalize_url(current_base_url)
-    current_url = self._normalize_url(current_url)
-
-    # If the current_url does not start with the current_base_url,
-    # then the url should not be scanned as it is not within the
-    # scope of the current_base_url
-    if not current_url.startswith(current_base_url):
+    if not self._is_url_within_base_url(current_base_url, current_url):
       logger.info(
-        'URL filtered out due to not starting with base_url %s %s',
+        'URL filtered out due to not being within base_url %s %s',
         current_base_url,
         current_url,
       )
       return False
 
-    # Iterate through all (other) base_urls and check if the current_url
-    # starts with any of them. If it does, then the current_url
-    # should not be scanned as it is within the scope of another
-    # base_url
+    _, current_base_segments = self._split_base_url_scope(current_base_url)
 
+    # iterate through all (other) base_urls to see if there's a deeper
+    # base_url that owns this url
     for base_url in self.analytics.base_urls:
-      base_url = self._normalize_url(base_url)  # noqa: PLW2901
-      if current_url.startswith(base_url) and len(base_url) > len(current_base_url):
-        # If the current_url starts with a base_url that is longer
-        # this means that the current_url is within the scope of
-        # another base_url that is more specific than current_base_url
+      if not self._is_url_within_base_url(base_url, current_url):
+        continue
+
+      _, base_url_segments = self._split_base_url_scope(base_url)
+
+      # at this point the base url with the most path segments wins
+      if len(base_url_segments) > len(current_base_segments):
         logger.info(
-          'URL filtered out due to being within \
-                            the scope of another base_url %s %s',
+          'URL filtered out due to being within the scope of another base_url %s %s',
           base_url,
           current_url,
         )
         return False
     return True
-
-  def _normalize_url(self, url: str) -> str:
-    """Normalize a URL for comparison.
-
-    This includes:
-      - making the url protocol and domain lowercase
-      - removing files from the path
-      - removing trailing slashes
-
-    E.g. HTTPS://MyCoolSite.com/abc/def.html -> https://mycoolsite.com/abc
-
-    Args:
-        url (str): URL to normalize
-
-    Returns:
-        str: normalized URL
-    """
-    parsed_url = urllib.parse.urlparse(url)
-
-    # lowercase the protocol and domain
-    scheme = parsed_url.scheme.lower()
-    netloc = parsed_url.netloc.lower()
-
-    path = parsed_url.path
-
-    # if the path ends with a file, remove it
-    if '.' in path:
-      path = path[: path.rfind('/') + 1]
-
-    # remove trailing slash
-    path = path.rstrip('/')
-
-    return f'{scheme}://{netloc}{path}'
-
-  def _url_sanitise(self, url: str) -> str:
-    """Sanitise URLs.
-
-    Args:
-        url (str): URL to be sanitised
-    Returns:
-        str: sanitised URL
-    """
-    # Parse URL with urllib.parse
-    try:
-      parsed_url = urllib.parse.urlparse(url)
-    except ValueError as exc:
-      raise ValueError('Invalid URL') from exc
-
-    # Ensure scheme is either http or https
-    if parsed_url.scheme not in ['http', 'https']:
-      raise ValueError('Invalid URL scheme')
-
-    # Save if it was trailing slash
-    was_trailing_slash = url.endswith('/')
-
-    # Encode the URL path to handle special characters, leaving existing
-    # percent-encoding alone so it is not double-encoded
-    parsed_url = parsed_url._replace(path=urllib.parse.quote(parsed_url.path, safe='/%'))
-
-    # Percent-escapes are case-insensitive, so normalise them to uppercase (as
-    # recommended by RFC 3986) so the same URL always sanitises to the same string
-    parsed_url = parsed_url._replace(path=re.sub(r'%[0-9a-fA-F]{2}', lambda m: m.group(0).upper(), parsed_url.path))
-
-    # Treat percent-encoded dot segments (e.g. `%2e%2e`, `.%2e`) as dots, as
-    # browsers do, so that they are normalised along with regular dot segments
-    segments = parsed_url.path.split('/')
-    for i, segment in enumerate(segments):
-      if segment.lower() == '%2e':
-        segments[i] = '.'
-      elif segment.lower() in {'%2e%2e', '.%2e', '%2e.'}:
-        segments[i] = '..'
-    parsed_url = parsed_url._replace(path='/'.join(segments))
-
-    # A dot segment at the end of the path resolves to a directory, so it keeps
-    # a trailing slash once normalised, as it does in browsers
-    if segments[-1] in {'.', '..'}:
-      was_trailing_slash = True
-
-    # Prevent path traversal using posixpath.normpath
-    parsed_url = parsed_url._replace(path=posixpath.normpath(parsed_url.path))
-
-    # Add trailing slash if it was there
-    if was_trailing_slash and not parsed_url.path.endswith('/'):
-      parsed_url = parsed_url._replace(path=parsed_url.path + '/')
-
-    # Rebuild URL
-    url = urllib.parse.urlunparse(parsed_url)
-
-    return url

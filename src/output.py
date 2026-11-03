@@ -109,18 +109,12 @@ def output_init_message(config: Config) -> None:
   print_log(f'Chrome binary location: {config.chrome_binary_location}')
   print_log(f'Chrome driver location: {config.chrome_driver_location}')
   print_log(f'User agent: {config.user_agent}')
-  print_log(f'User agent product token: {config.user_agent_product_token}')
-  print_log(f'Follow robots.txt: {config.follow_robots_txt}')
   print_log(f'Script timeout: {config.script_timeout} seconds')
   print_log(f'Page load timeout: {config.page_load_timeout} seconds')
-  print_log(f'Delay between page_loads: {config.delay_between_page_loads} seconds')
-  print_log(f'Delay between viewports: {config.delay_between_viewports} seconds')
   print_log(f'Delay after page load: {config.delay_after_page_load} seconds')
-  print_log(f'Only allow HTTPS: {config.only_allow_https}')
   print_log(f'Perform header checks: {config.perform_header_check}')
   print_log(f'Shuffle base urls: {config.shuffle_base_urls}')
   print_log(f'Base urls visit path: {config.base_urls_visit_path}')
-  print_log(f'Recording unexpected response codes: {config.record_unexpected_response_codes}')
   print_log('*' * 80)
 
 
@@ -333,8 +327,5 @@ def template_aware_algorithm(input_df: pd.DataFrame, groupby_cols: list[str]) ->
   # Rows without an issue_id (i.e. pages with no issues) don't match any rows,
   # so they get a count of 0.
   agg_df['num_pages'] = agg_df.groupby('issue_id')['url'].transform('nunique').fillna(0).astype(int)
-
-  # Reset the index of the final DataFrame to ensure a clean output
-  agg_df.reset_index()
 
   return agg_df

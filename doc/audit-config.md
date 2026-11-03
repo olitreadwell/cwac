@@ -53,31 +53,15 @@ The available configuration options are described below. See the
     and architecture
 - `user_agent`
   - the user agent string CWAC will use for all network requests
-- `user_agent_product_token`
-  - the product token (should match the one in `user_agent` used for robots.txt
-    matching)
-- `follow_robots_txt`
-  - a bool, determines if robots.txt directives should be followed by CWAC
 - `script_timeout`
   - the number of seconds before JavaScript execution will timeout
 - `page_load_timeout`
   - the number of seconds before a page load will timeout
-- `delay_between_page_loads`
-  - delay amount (in seconds) that is used between visiting pages for each
-    browser instance
-  - if a Chrome instance hangs on a webpage, try increasing this value
-- `delay_between_viewports`
-  - if multiple viewport resolutions are specified in `viewport_sizes`, this is
-    a delay (in seconds) between testing each viewport. It's useful to ensure
-    the browser has re-rendered the content at the new viewport size
 - `delay_after_page_load`
   - once the browser has loaded the page, this is a delay (in seconds) before
     running tests. This is helpful to allow any animations of JavaScript-based
     page changes to occur before running tests which may cause false positives
     i.e. fade-in animations can cause colour contrast false positives.
-- `only_allow_https`
-  - a boolean value that determines if CWAC will restrict to HTTPS-only URLs
-    (true: restrict to HTTPS)
 - `perform_header_check`
   - a boolean value that determines if CWAC will send a header-only request to
     each URL before loading the URL in a browser. This can prevent Chrome from

@@ -9,6 +9,7 @@ from pyfakefs.fake_filesystem import FakeFilesystem
 from pytest_mock import MockerFixture
 
 from config import Config, SiteData
+from tests.helpers.utils import normalized_url
 
 
 @pytest.fixture(autouse=True)
@@ -141,6 +142,54 @@ class TestChromeLocationsAutoResolution:
     assert config.chrome_binary_location == '/home/user/.cache/selenium/chrome/linux64/139.0.7258.68'
     assert config.chrome_driver_location == '/home/user/.cache/selenium/chromedriver/linux64/139.0.7258.68'
 
+  def test_only_binary_location_auto_is_fine(self, fs: FakeFilesystem, mocker: MockerFixture) -> None:
+    """Resolves chrome_binary_location automatically while preserving the manually configured chrome_driver_location."""
+    fs.add_real_file('config/config_default.json', read_only=False)
+
+    mock_platform(mocker, 'Linux', 'x86_64')
+
+    with open('config/config_default.json', 'r+', encoding='utf-8') as f:
+      c = {
+        **json.load(f),
+        'chrome_binary_location': 'auto',
+        'chrome_driver_location': '/home/user/.cache/selenium/chromedriver/linux64/139.0.7258.68',
+      }
+      f.seek(0)
+      json.dump(c, f)
+      f.truncate()
+
+    with open('package.json', 'w+', encoding='utf-8') as f:
+      f.write(json.dumps({'config': {'chromeVersion': '123-abc'}}))
+
+    config = Config('config_default.json')
+
+    assert config.chrome_binary_location == './chrome/linux-123-abc/chrome-linux64/chrome'
+    assert config.chrome_driver_location == '/home/user/.cache/selenium/chromedriver/linux64/139.0.7258.68'
+
+  def test_only_driver_location_auto_is_fine(self, fs: FakeFilesystem, mocker: MockerFixture) -> None:
+    """Resolves chrome_driver_location automatically while preserving the manually configured chrome_binary_location."""
+    fs.add_real_file('config/config_default.json', read_only=False)
+
+    mock_platform(mocker, 'Linux', 'x86_64')
+
+    with open('config/config_default.json', 'r+', encoding='utf-8') as f:
+      c = {
+        **json.load(f),
+        'chrome_binary_location': '/home/user/.cache/selenium/chrome/linux64/139.0.7258.68',
+        'chrome_driver_location': 'auto',
+      }
+      f.seek(0)
+      json.dump(c, f)
+      f.truncate()
+
+    with open('package.json', 'w+', encoding='utf-8') as f:
+      f.write(json.dumps({'config': {'chromeVersion': '123-abc'}}))
+
+    config = Config('config_default.json')
+
+    assert config.chrome_binary_location == '/home/user/.cache/selenium/chrome/linux64/139.0.7258.68'
+    assert config.chrome_driver_location == './chromedriver/linux-123-abc/chromedriver-linux64/chromedriver'
+
 
 class TestUrlLoading:
   """Tests the loading of urls from csv files."""
@@ -193,7 +242,7 @@ class TestUrlLoading:
 
     expected: list[SiteData] = [
       {
-        'url': 'https://bnl.com/',
+        'url': normalized_url('https://bnl.com/'),
         'supports_head': True,
         'columns': {
           'organisation': "Buy 'n' Large",
@@ -204,7 +253,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://bnl.com/finance',
+        'url': normalized_url('https://bnl.com/finance'),
         'supports_head': True,
         'columns': {
           'organisation': "Buy 'n' Large",
@@ -215,7 +264,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://cyberdyne.com/rd',
+        'url': normalized_url('https://cyberdyne.com/rd'),
         'supports_head': True,
         'columns': {
           'organisation': 'Cyberdyne Systems',
@@ -226,7 +275,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://cyberdyne.com/security',
+        'url': normalized_url('https://cyberdyne.com/security'),
         'supports_head': True,
         'columns': {
           'organisation': 'Cyberdyne Systems',
@@ -237,18 +286,18 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://umbrella.com',
+        'url': normalized_url('https://umbrella.com/'),
         'supports_head': True,
         'columns': {
           'organisation': 'Umbrella Corp',
-          'url': 'https://umbrella.com',
+          'url': 'https://umbrella.com/',
           'sector': 'R&D',
           'region': 'Overseas',
           'priority': 'High',
         },
       },
       {
-        'url': 'https://umbrella.com/hr',
+        'url': normalized_url('https://umbrella.com/hr'),
         'supports_head': True,
         'columns': {
           'organisation': 'Umbrella Corp',
@@ -259,7 +308,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://umbrella.com/legal',
+        'url': normalized_url('https://umbrella.com/legal'),
         'supports_head': True,
         'columns': {
           'organisation': 'Umbrella Corp',
@@ -270,7 +319,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/finance',
+        'url': normalized_url('https://wayne.com/finance'),
         'supports_head': True,
         'columns': {
           'organisation': 'Wayne Enterprises',
@@ -281,7 +330,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/legal',
+        'url': normalized_url('https://wayne.com/legal'),
         'supports_head': True,
         'columns': {
           'organisation': 'Wayne Enterprises',
@@ -292,7 +341,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/security',
+        'url': normalized_url('https://wayne.com/security'),
         'supports_head': True,
         'columns': {
           'organisation': 'Wayne Enterprises',
@@ -371,7 +420,7 @@ class TestUrlLoading:
 
     expected: list[SiteData] = [
       {
-        'url': 'https://acme.com/finance',
+        'url': normalized_url('https://acme.com/finance'),
         'supports_head': True,
         'columns': {
           'organisation': 'ACME',
@@ -382,7 +431,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://acme.com/hr',
+        'url': normalized_url('https://acme.com/hr'),
         'supports_head': True,
         'columns': {
           'organisation': 'ACME',
@@ -393,7 +442,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://acme.com/legal',
+        'url': normalized_url('https://acme.com/legal'),
         'supports_head': True,
         'columns': {
           'organisation': 'ACME',
@@ -404,7 +453,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://bnl.com/',
+        'url': normalized_url('https://bnl.com/'),
         'supports_head': True,
         'columns': {
           'url': 'https://bnl.com/',
@@ -415,7 +464,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://bnl.com/finance',
+        'url': normalized_url('https://bnl.com/finance'),
         'supports_head': True,
         'columns': {
           'url': 'https://bnl.com/finance',
@@ -426,7 +475,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://cyberdyne.com/rd',
+        'url': normalized_url('https://cyberdyne.com/rd'),
         'supports_head': True,
         'columns': {
           'url': 'https://cyberdyne.com/rd',
@@ -437,7 +486,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://cyberdyne.com/security',
+        'url': normalized_url('https://cyberdyne.com/security'),
         'supports_head': True,
         'columns': {
           'url': 'https://cyberdyne.com/security',
@@ -448,7 +497,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://stark.com/finance',
+        'url': normalized_url('https://stark.com/finance'),
         'supports_head': True,
         'columns': {
           'organisation': 'Stark Industries',
@@ -459,7 +508,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://stark.com/rd',
+        'url': normalized_url('https://stark.com/rd'),
         'supports_head': True,
         'columns': {
           'organisation': 'Stark Industries',
@@ -470,10 +519,10 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://umbrella.com',
+        'url': normalized_url('https://umbrella.com/'),
         'supports_head': True,
         'columns': {
-          'url': 'https://umbrella.com',
+          'url': 'https://umbrella.com/',
           'organisation': '',
           'priority': '',
           'region': '',
@@ -481,7 +530,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://umbrella.com/hr',
+        'url': normalized_url('https://umbrella.com/hr'),
         'supports_head': True,
         'columns': {
           'url': 'https://umbrella.com/hr',
@@ -492,7 +541,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://umbrella.com/legal',
+        'url': normalized_url('https://umbrella.com/legal'),
         'supports_head': True,
         'columns': {
           'url': 'https://umbrella.com/legal',
@@ -503,7 +552,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/finance',
+        'url': normalized_url('https://wayne.com/finance'),
         'supports_head': True,
         'columns': {
           'url': 'https://wayne.com/finance',
@@ -514,7 +563,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/legal',
+        'url': normalized_url('https://wayne.com/legal'),
         'supports_head': True,
         'columns': {
           'url': 'https://wayne.com/legal',
@@ -525,7 +574,7 @@ class TestUrlLoading:
         },
       },
       {
-        'url': 'https://wayne.com/security',
+        'url': normalized_url('https://wayne.com/security'),
         'supports_head': True,
         'columns': {
           'url': 'https://wayne.com/security',
@@ -538,6 +587,92 @@ class TestUrlLoading:
     ]
 
     assert sorted(config.audit_subjects, key=lambda site: site['url']) == expected
+
+  def test_urls_are_normalized(self, fs: FakeFilesystem) -> None:
+    """Normalizes urls, including converting internationalized domain names to punycode."""
+    fs.add_real_file('config/config_default.json')
+
+    # remove the csvs from setup so we only load the urls for this test
+    fs.remove('base_urls/visit/my urls.csv')
+    fs.remove('base_urls/visit/q3_2024_urls.csv')
+    fs.remove('base_urls/visit/theirs_urls.csv')
+
+    fs.create_file(
+      'base_urls/visit/idn.csv',
+      contents=textwrap.dedent("""
+        url
+        https://www.māorilandcourt.govt.nz/mi
+        HTTPS://www.TEKĀHUIKAUMĀTUA.govt.nz:443
+      """).strip(),
+    )
+
+    config = Config('config_default.json')
+
+    assert config.audit_subjects == [
+      {
+        'url': 'https://www.xn--morilandcourt-wqb.govt.nz/mi',
+        'supports_head': True,
+        'columns': {'url': 'https://www.xn--morilandcourt-wqb.govt.nz/mi'},
+      },
+      {
+        'url': 'https://www.xn--tekhuikaumtua-yqbh.govt.nz/',
+        'supports_head': True,
+        'columns': {'url': 'https://www.xn--tekhuikaumtua-yqbh.govt.nz/'},
+      },
+    ]
+    assert config.url_lookup == {'www.xn--morilandcourt-wqb.govt.nz', 'www.xn--tekhuikaumtua-yqbh.govt.nz'}
+
+  def test_invalid_urls_are_skipped(self, fs: FakeFilesystem) -> None:
+    """Skips urls that are not valid."""
+    fs.add_real_file('config/config_default.json')
+
+    # remove the csvs from setup so we only load the urls for this test
+    fs.remove('base_urls/visit/my urls.csv')
+    fs.remove('base_urls/visit/q3_2024_urls.csv')
+    fs.remove('base_urls/visit/theirs_urls.csv')
+
+    fs.create_file(
+      'base_urls/visit/invalid.csv',
+      contents=textwrap.dedent("""
+        url
+        https://valid.com/
+        https://inva lid.com/
+      """).strip(),
+    )
+
+    config = Config('config_default.json')
+
+    assert config.audit_subjects == [
+      {'url': 'https://valid.com/', 'supports_head': True, 'columns': {'url': 'https://valid.com/'}},
+    ]
+
+  def test_unsupported_schemes_are_skipped(self, fs: FakeFilesystem) -> None:
+    """Skips urls that have an unsupported or missing scheme."""
+    fs.add_real_file('config/config_default.json', read_only=False)
+
+    # remove the csvs from setup so we only load the urls for this test
+    fs.remove('base_urls/visit/my urls.csv')
+    fs.remove('base_urls/visit/q3_2024_urls.csv')
+    fs.remove('base_urls/visit/theirs_urls.csv')
+
+    fs.create_file(
+      'base_urls/visit/schemes.csv',
+      contents=textwrap.dedent("""
+        url
+        ftp://example.com/
+        https://valid.com/
+        http://valid.net/
+        example.net
+        javascript:void(0)
+      """).strip(),
+    )
+
+    config = Config('config_default.json')
+
+    assert config.audit_subjects == [
+      {'url': 'https://valid.com/', 'supports_head': True, 'columns': {'url': 'https://valid.com/'}},
+      {'url': 'http://valid.net/', 'supports_head': True, 'columns': {'url': 'http://valid.net/'}},
+    ]
 
   def test_raises_on_csv_missing_url_header(self, fs: FakeFilesystem) -> None:
     """Raises a helpful error when a csv does not have the required "url" header."""

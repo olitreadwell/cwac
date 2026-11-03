@@ -3,11 +3,13 @@
 Contains useful functions for managing browsers.
 """
 
+import json
 import logging
 import os
 import platform
+import shutil
+import tempfile
 import time
-import traceback
 from typing import Any, cast
 
 import selenium.common.exceptions
@@ -17,13 +19,14 @@ from selenium.webdriver.chrome.service import Service
 from selenium.webdriver.chrome.webdriver import WebDriver as ChromeWebDriver
 
 from config import Config
+from src.urls import NormalizedUrl
 
 WebDriverType = ChromeWebDriver
 
 logger = logging.getLogger('cwac')
 
 
-class Browser:
+class Browser:  # pylint: disable=too-many-instance-attributes
   """A wrapper class for selenium webdriver."""
 
   def __init__(self, config: Config, thread_id: int) -> None:
@@ -31,13 +34,13 @@ class Browser:
     self.config = config
     self.thread_id = thread_id
     self.num_retries = 2
-    self.viewport_size = {'width': 320, 'height': 450}
-    self.driver: WebDriverType = self.spawn_single_webdriver(
-      window_size=next(iter(self.config.viewport_sizes.values()))
-    )
-    self.last_url_req = ''
+    self._chrome_tmp_dir: str | None = None
+    self.viewport_size = next(iter(self.config.viewport_sizes.values()))
+    self.driver: WebDriverType = self.spawn_single_webdriver(window_size=self.viewport_size)
+    self.requested_url = ''
+    self._js_execution_context_id: int | None = None
 
-  def get(self, url: str) -> bool:
+  def get(self, url: NormalizedUrl) -> bool:
     """Load a URL in the webdriver.
 
     Args:
@@ -46,40 +49,115 @@ class Browser:
     Returns:
         bool: True if page loaded, False if something went wrong
     """
-    # If only_allow_https is set, check that the URL is HTTPS
-    if self.config.only_allow_https and not url.startswith('https://'):
-      logger.info('Skipping %s as only_allow_https is set', url)
-      return False
-
+    self.requested_url = ''
     for attempts in range(self.num_retries):
       try:
         logger.info('Running .get: %s', url)
+        self._js_execution_context_id = None
         self.driver.get(url)
         logger.info('.get successful')
-        self.driver.set_script_timeout(self.config.script_timeout)
-        self.driver.set_page_load_timeout(self.config.page_load_timeout)
-        self.last_url_req = url
+        self.requested_url = url
         break
       except selenium.common.exceptions.TimeoutException:
         logger.exception('Timeout exception: %s, attempt:%i', url, attempts)
         if attempts == self.num_retries - 1:
-          logger.info('%i attempts failed to .get: %s', attempts + 1, url)
+          logger.error('%i attempts failed to .get: %s', attempts + 1, url)
           return False
       except selenium.common.exceptions.WebDriverException:
         logger.exception('WebDriverException')
         if attempts == self.num_retries - 1:
-          logger.info('%i attempts failed to .get: %s', attempts + 1, url)
+          logger.error('%i attempts failed to .get: %s', attempts + 1, url)
           return False
         self.safe_restart()
       except Exception:  # pylint: disable=broad-exception-caught
         logger.exception('Unhandled exception')
         if attempts == self.num_retries - 1:
-          logger.info('%i attempts failed to .get: %s', attempts + 1, url)
+          logger.error('%i attempts failed to .get: %s', attempts + 1, url)
           return False
 
     # Delay to allow page to load more
     time.sleep(self.config.delay_after_page_load)
     return True
+
+  def evaluate(self, js: str) -> Any:
+    """Evaluate a JavaScript snippet on the current page using CDP.
+
+    The snippet is run with Runtime.evaluate, so it behaves like `eval`:
+    https://chromedevtools.github.io/devtools-protocol/tot/Runtime/#method-Runtime-evaluate
+
+    To guard against pages that patch built-ins, the snippet is run in an isolated
+    world, meaning it shares the page's DOM but not its JavaScript globals.
+
+    The snippet is also wrapped in a block so that lexical declarations (`let`,
+    `const`, and `class`) are scoped to each call rather than the world's global
+    scope, preventing redeclaration errors across calls that use the same names.
+
+    The value of the last statement is returned; if it's a Promise, it's awaited
+    and the resolved value is returned instead.
+
+    Snippets involving promises should use `Promise.race` against `config.script_timeout`
+    to ensure they don't hang, as CDP only supports timing out for synchronous execution.
+
+    Args:
+        js (str): the JavaScript snippet to evaluate
+
+    Returns:
+        Any: the result as JSON; values that aren't JSON-serializable don't round-trip
+            (functions come back as `{}`, NaN as None, and DOM nodes as junk)
+
+    Raises:
+        selenium.common.exceptions.JavascriptException: if the snippet throws
+        selenium.common.exceptions.WebDriverException: if synchronous execution times out
+    """
+    response = self.driver.execute_cdp_cmd(
+      'Runtime.evaluate',
+      {
+        'contextId': self._get_js_execution_context_id(),
+        # wrap the snippet in a block to scope locals
+        'expression': f'{{\n{js}\n}}',
+        'returnByValue': True,
+        'awaitPromise': True,
+        # this only applies to synchronous evaluations, and will surface as a generic
+        # WebDriverException; asynchronous evaluations should include a Promise.race
+        'timeout': self.config.script_timeout * 1000,
+      },
+    )
+
+    if 'exceptionDetails' in response:
+      # exceptions here are effectively always bugs (ours or the page's), so rather
+      # than trying to pick out a message from whatever JS threw and CDP reported,
+      # we include everything to make debugging easier
+      raise selenium.common.exceptions.JavascriptException(
+        f'Runtime.evaluate threw: {json.dumps(response["exceptionDetails"])}'
+      )
+
+    return response['result'].get('value')
+
+  def _get_js_execution_context_id(self) -> int:
+    """Get the id of the execution context to evaluate JavaScript snippets in.
+
+    This is an isolated world for the page's main frame, created on first use and
+    reused until the page changes through a get or restart.
+    """
+    if self._js_execution_context_id is not None:
+      return self._js_execution_context_id
+
+    frame_id = self.driver.execute_cdp_cmd(
+      'Page.getFrameTree',
+      {},
+    )['frameTree']['frame']['id']
+
+    execution_context_id = cast(
+      int,
+      self.driver.execute_cdp_cmd(
+        'Page.createIsolatedWorld',
+        {'frameId': frame_id, 'worldName': 'CWAC'},
+      )['executionContextId'],
+    )
+
+    self._js_execution_context_id = execution_context_id
+
+    return execution_context_id
 
   def safe_restart(self) -> None:
     """Restart the webdriver."""
@@ -92,66 +170,13 @@ class Browser:
       if 'disconnected' in str(error):
         logger.exception(
           'WebDriverException, browser probably crashed %s',
-          self.last_url_req,
+          self.requested_url,
         )
     except urllib3.exceptions.HTTPError:
-      logger.exception('urllib3 HTTPError, browser probably hung %s', self.last_url_req)
+      logger.exception('urllib3 HTTPError, browser probably hung %s', self.requested_url)
     self.driver = self.spawn_single_webdriver(window_size=self.viewport_size)
-    self.last_url_req = ''
-
-  def get_doctype(self) -> str:
-    """Get the doctype of the currently loaded page.
-
-    Returns:
-        str: the doctype of the loaded page
-    """
-    doctype_string = ''
-    doctype_js = """return "<!DOCTYPE " + document.doctype.name \
-            + (document.doctype.publicId ? ' PUBLIC "' \
-            + document.doctype.publicId + '"' : '') \
-            + (!document.doctype.publicId && \
-             document.doctype.systemId ? ' SYSTEM' : '') \
-            + (document.doctype.systemId ? ' "' +\
-            document.doctype.systemId + '"' : '') + '>';"""
-    try:
-      doctype_string = self.driver.execute_script(doctype_js)
-    except Exception:  # noqa: BLE001 # pylint: disable=broad-exception-caught
-      logger.error(
-        ("An error occurred while trying to get this website's doctype. Defaulting to html5 for %s"),
-        self.driver.current_url,
-      )
-      logger.error(traceback.format_exc())
-      doctype_string = '<!DOCTYPE html>'
-    return doctype_string
-
-  def get_base_uri(self) -> str:
-    """Returns document.baseURI of currently loaded page.
-
-    Returns:
-        str: base URI of current page.
-    """
-    try:
-      return cast(str, self.driver.execute_script('return document.baseURI'))
-    except Exception:
-      logger.exception('TimeoutException when getting base URI')
-      self.safe_restart()
-      raise
-
-  def get_page_source(self) -> str:
-    """Return HTML source of currently loaded page.
-
-    This function does not load the page, it assumes that the page is already
-    loaded in the webdriver.
-
-    Returns:
-        str: page source
-    """
-    try:
-      return self.get_doctype() + '\n' + self.driver.page_source
-    except selenium.common.exceptions.TimeoutException:
-      logger.exception('TimeoutException when getting page source')
-      self.safe_restart()
-      raise
+    self.requested_url = ''
+    self._js_execution_context_id = None
 
   def close(self) -> None:
     """Close the browser."""
@@ -160,7 +185,18 @@ class Browser:
       self.driver.quit()
     except (selenium.common.exceptions.WebDriverException, urllib3.exceptions.HTTPError):
       logger.exception('Failed to quit browser')
-    self.last_url_req = ''
+    self._remove_chrome_tmp_dir()
+    self.requested_url = ''
+    self._js_execution_context_id = None
+
+  def _remove_chrome_tmp_dir(self) -> None:
+    if self._chrome_tmp_dir is None:
+      return
+    shutil.rmtree(
+      self._chrome_tmp_dir,
+      onexc=lambda func, path, exc: logger.warning('Failed to remove %s (%s): %s', path, func.__name__, exc),
+    )
+    self._chrome_tmp_dir = None
 
   def set_window_size(self, width: int, height: int) -> None:
     """Set browser size.
@@ -176,12 +212,11 @@ class Browser:
       logger.exception('Failed to set window size')
       self.safe_restart()
 
-  def spawn_single_webdriver(self, window_size: dict[Any, Any], headless_override: bool = False) -> WebDriverType:
+  def spawn_single_webdriver(self, window_size: dict[Any, Any]) -> WebDriverType:
     """Spawn a single instance of a browser.
 
     Args:
         window_size (dict[Any, Any]): window dimensions of browser.
-        headless_override (bool, optional): override headless setting.
 
     Returns:
         WebDriverType: a webdriver object.
@@ -192,7 +227,7 @@ class Browser:
       null_path = 'NUL'
 
     chrome_options = webdriver.ChromeOptions()
-    if self.config.headless or headless_override:
+    if self.config.headless:
       chrome_options.add_argument('--headless')
     chrome_options.add_argument(f'--window-size={window_size["width"]},{window_size["height"]}')
     chrome_options.add_argument('--log-level=3')
@@ -208,6 +243,12 @@ class Browser:
 
     chrome_options.unhandled_prompt_behavior = 'dismiss'
 
+    # Timeouts are in milliseconds
+    chrome_options.timeouts = {
+      'script': self.config.script_timeout * 1000,
+      'pageLoad': self.config.page_load_timeout * 1000,
+    }
+
     # Disable downloads
     chrome_options.add_experimental_option(
       'prefs',
@@ -217,8 +258,14 @@ class Browser:
       },
     )
 
+    # set up a dedicated temp directory for this instance of chrome,
+    # so we can ensure it is removed later in case we have a crash
+    self._remove_chrome_tmp_dir()
+    self._chrome_tmp_dir = tempfile.mkdtemp(prefix='cwac-chrome-')
+
     chrome_service = Service(
       self.config.chrome_driver_location,
+      env={**os.environ, 'TMPDIR': self._chrome_tmp_dir},
       service_args=[
         '--verbose',
         '--log-path=./results/' + self.config.audit_name + '/chromedriver.log',
@@ -229,9 +276,6 @@ class Browser:
     chrome_options.binary_location = self.config.chrome_binary_location
 
     driver = webdriver.Chrome(service=chrome_service, options=chrome_options)
-
-    driver.set_script_timeout(self.config.script_timeout)
-    driver.set_page_load_timeout(self.config.page_load_timeout)
 
     x_pos = 100 + 400 * (self.thread_id % 4)
     y_pos = 0 if self.thread_id < 4 else 400
